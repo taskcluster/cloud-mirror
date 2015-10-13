@@ -8,7 +8,8 @@
       "test/mocha.opts"
     ],
     "moves": [
-      ["lib/stats.js", "src/stats.js"]
+      ["lib/stats.js", "src/stats.js"],
+      ["lib/series.js", "src/series.js"]
     ],
     "pkgOverwrite": [
       ["scripts",
