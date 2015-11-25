@@ -24,10 +24,10 @@ async function setupBackends(config) {
       debug('Creating S3 Bucket ' + bucket);
       let result = await s3.createBucket({
         Bucket: bucket,
-        /*CreateBucketConfiguration: {
+        CreateBucketConfiguration: {
           LocationConstraint: region,
         },
-        ACL: 'public-read',*/
+        ACL: 'public-read',
       }).promise();
       console.dir(result.data);
       debug('hi');
@@ -58,7 +58,8 @@ setupBackends({
   s3BucketBase: `cloud-mirror-${process.env.NODE_ENV||'development'}-`,
   awsRegions: ['us-west-2'],
 }).then(backends => {
-  return backends.aws[0].put('http://johnford.org');
   //return backends.aws[0].put('http://johnford.org/solo-run.f4v');
+  //return backends.aws[0].put('http://johnford.org/index.html');
+  return backends.aws[0].put('https://httpbin.org/redirect/5');
 }).then(console.dir, err => console.log(err.stack || err));
 

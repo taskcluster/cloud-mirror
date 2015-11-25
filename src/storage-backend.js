@@ -3,12 +3,115 @@ let crypto = require('crypto');
 let url = require('url');
 let debug = require('debug')(require('path').relative(process.cwd(), __filename));
 let http = require('http');
-let request = require('request');
+let request = require('request').defaults({
+  followRedirect: false, 
+});
 let fs = require('fs');
+let stream = require('stream');
+let meter = require('stream-meter');
+let contentDisposition = require('content-disposition');
 
 // NOTE: rawUrl == raw url as passed into this service
 //       url == encoded url as used by caching
 //       localUrl == local is defined as the storage cloud that we're trying to serve from
+
+let requestHead = async (_url) => {
+  return new Promise((res, rej) => {
+    request.head(_url, {followRedirect:false}, (err, response) => {
+      if (err) {
+        debug(err.stack || err);
+        rej(err);
+      }
+      debug('got headers');
+      res({
+        headers: response.headers,
+        caseless: response.caseless,
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+      });
+    });
+  });
+}
+
+let followRedirects = async (firstUrl, cfg = {}) => {
+  // Number of redirects to follow
+  let limit = cfg.limit || 10;
+  let addresses = [];
+  let validateUrl = (u) => {
+    if (!u.match(/^https:/)) {
+      let s = 'Refusing to follow unsafe redirects: ';
+      s += addresses.map(x => x.url).join(' --> ');
+      s += u;
+
+      let err = new Error(s);
+      err.addresses = addresses;
+      throw err;
+    }
+  }
+
+  if (cfg.allowInsecureRedirect) {
+    validateUrl = () => true;
+  }
+
+  validateUrl(firstUrl);
+
+  let u = firstUrl;
+  let c = true;
+  for (let i = 0 ; c && i < limit ; i++) {
+    let result = await requestHead(u);
+    let sc = result.statusCode;
+
+    addresses.push({
+      code: sc,
+      url: u,
+      t: new Date(),
+    });
+
+    if (sc >= 200 && sc < 300) {
+      validateUrl(u);
+      debug('Follwed all redirects: ' + addresses.map(x => x.url).join(' --> '));
+      return {
+        url: u,
+        meta: result,
+        addresses,
+      };
+    } else if (sc >= 300 && sc < 400 && sc !== 304 && sc !== 305) {
+      assert(result.caseless.has('location'));
+      let newU = result.headers[result.caseless.has('location')];
+      newU = url.resolve(u, newU);
+      validateUrl(newU);
+      u = url.resolve(u, newU);
+    } else {
+      // Consider using an exponential backoff and retry here
+      throw new Error('HTTP Error while redirecting');
+    }
+  }
+
+  throw new Error(`Limit of ${limit} redirects reached: ${addresses.map(x => x.url).join(' --> ')}`);
+};
+
+// We use this to wrap the upload object returned by s3.upload
+// so that we get a promise interface.  Since this api method
+// does not return the standard AWS.Result class, it's not wrapped
+// in Promises by the promise wrapper
+let wrapSend = (upload) => {
+  return new Promise((res, rej) => {
+    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 15);
+    debug('initiating upload');
+    upload.send((err, data) => {
+      clearTimeout(abortTimer);
+      if (err) {
+        debug('upload error');
+        debug(err.stack || err);
+        rej(err);
+      } else {
+        debug('upload completed');
+        res(data);
+      }
+    });
+  });
+};
+//http://docs.aws.amazon.com/AWSJavaScriptSDK/latest/index.html
 
 /**
  * This class represents the operations that a backend must support to be used
@@ -66,20 +169,43 @@ class StorageBackend {
     debug(`Set memcached key ${url} to ${JSON.stringify(val)}`);
     // I should create a queue for the pending copy and send
     // a message to it when the copy completes
-    let stream = this.readUrlStream(rawUrl);
+    let m = meter();
+    m.on('error', err => {
+      debug('error from stream-meter: %s', err.stack||err);
+    });
+    let readInfo = await this.readUrlStream(rawUrl)
+    let readStream = readInfo.stream.pipe(m);
     debug(`Creating read stream for ${rawUrl}`);
     let name = this.storageSubsystemName(rawUrl);
-    let localUrl = await this._put(name, stream);
+    debug(`Storage Subsystem Name ${JSON.stringify(name)}`);
+    debugger;
+    let contentType = readInfo.meta.headers[readInfo.meta.caseless.has('content-type')];
+    let localUrl = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses);
     val.status = 'present';
     // Here's where we'd store in the persistent data store
     await this.memcached.set(url, JSON.stringify(val), this.urlTTL);
     debug(`Set memcached key ${url} to ${JSON.stringify(val)}`);
+    debug(`Put a ${m.bytes} byte file`);
     return localUrl;
   }
 
-  readUrlStream(rawUrl) {
-    //return fs.createReadStream('todo.txt');
-    request(rawUrl);
+  async readUrlStream(rawUrl) {
+    let urlInfo = await followRedirects(rawUrl, {
+      limit: 20,
+      allowInsecureRedirect: true,
+    });
+    let obj = request.get(urlInfo.url);
+    obj.on('error', err => {
+      debug(err.stack || err);
+      throw err;
+    });
+    let passthrough = new stream.PassThrough();
+    return {
+      stream: obj.pipe(passthrough),
+      url: urlInfo.url,
+      meta: urlInfo.meta,
+      addresses: urlInfo.addresses,
+    };
   }
 
   // Implementors must take a raw URL, store it and return the address
@@ -130,7 +256,11 @@ class StorageBackend {
   // Create a name for the storage subsystem that we'll
   // use to address a resource.  This can be a one way mapping
   storageSubsystemName(rawUrl) {
+    assert(rawUrl.length <= 1024, 's3 key must be 1024 or fewer unicode characters');
+    // Use this header to set the download name: 
+    // http://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html#sec19.5.1
     return crypto.createHash('sha256').update(rawUrl).digest('hex');
+    //return encodeURIComponent(rawUrl);
   }
 
 }
@@ -149,6 +279,8 @@ class S3Backend extends StorageBackend {
     this.region = config.region;
     this.s3 = config.s3;
     this.bucket = config.bucket;
+    // This will become a way to switch how we do S3 uploading
+    this.uploadMethod = this._putUsingS3Upload;
   }
 
   async _expire(name) {
@@ -158,27 +290,58 @@ class S3Backend extends StorageBackend {
     }).promise();
   }
 
-  async _put(name, inStream) {
+  async _putUsingS3Upload(inStream, name, url, contentType, redirects) {
+    assert(inStream);
+    assert(name);
+    assert(url);
+    assert(contentType);
+    assert(redirects);
     let request = {
       Bucket: this.bucket,
       Key: name.key,
       Body: inStream,
-      // Expires: ???
-      // I wonder if we should also be setting ContentType:
+      ContentType: contentType,
+      ContentDisposition: contentDisposition(name.filename),
+      ACL: 'public-read',
+      Metadata: {
+        redirects: JSON.stringify(redirects),
+        url: url,
+        stored: new Date().toISOString(),
+      }
     };
-    debug('s3.putObject request: %j' , request);
-    let result = await this.s3.putObject(request).promise();
-    console.dir(result);
+    console.dir(request);
+    let options = {
+      partSize: 10 * 1024 * 1024,
+      queueSize: 4,
+    };
+    debug('s3.upload starting');
+    let upload = this.s3.upload(request, options);
+    let result = await wrapSend(upload);
+    debug('s3.upload result: %j', result);
+    return result
+  }
+
+  async _put(name, inStream, url, contentType, redirects) {
+    assert(name, 'missing name for _put');
+    assert(inStream, 'missing inStream for _put');
+    assert(url);
+    assert(contentType);
+    assert(redirects);
+    assert(inStream instanceof stream.Readable, 'inStream must be stream');
+    return await this.uploadMethod(inStream, name, url, contentType, redirects);
   }
 
   // For S3, we want to have a bucket name as well when we address
   // the resource
   storageSubsystemName(rawUrl) {
     let urlparts = url.parse(rawUrl);
+    let filename = urlparts.pathname.split('/');
+    filename = filename[filename.length - 1];
     return {
       bucket: this.bucket,
       key: super.storageSubsystemName(rawUrl),
       region: this.region,
+      filename: filename,
     };
   }
 }
