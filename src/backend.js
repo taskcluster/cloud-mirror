@@ -7,7 +7,7 @@ let storageBackend = require('./storage-backend');
 let memcached = new Memcached('localhost:11211');
 
 
-async function setupBackends(config) {
+let setupBackends = async function (config) {
   let awsBackends = [];
   let awsRegions = config.awsRegions;
 
@@ -55,11 +55,11 @@ async function setupBackends(config) {
 }
 
 setupBackends({
-  s3BucketBase: `cloud-mirror-${process.env.NODE_ENV||'development'}-`,
+  s3BucketBase: `cloud-mirror-${process.env.NODE_ENV || 'development'}-`,
   awsRegions: ['us-west-2'],
 }).then(backends => {
-  //return backends.aws[0].put('http://johnford.org/solo-run.f4v');
+  return backends.aws[0].put('http://localhost/big.random2');
   //return backends.aws[0].put('http://johnford.org/index.html');
-  return backends.aws[0].put('https://httpbin.org/redirect/5');
+  //return backends.aws[0].put('https://httpbin.org/redirect/5');
 }).then(console.dir, err => console.log(err.stack || err));
 

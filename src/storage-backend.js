@@ -11,19 +11,20 @@ let stream = require('stream');
 let meter = require('stream-meter');
 let contentDisposition = require('content-disposition');
 
-// NOTE: rawUrl == raw url as passed into this service
-//       url == encoded url as used by caching
-//       localUrl == local is defined as the storage cloud that we're trying to serve from
-
-let requestHead = async (_url) => {
-  return new Promise((res, rej) => {
-    request.head(_url, {followRedirect:false}, (err, response) => {
+/**
+ * Obtain a header from a URL.  Do not follow redirects.  Returns the headers,
+ * a caseless to look up header names without worrying about case, the HTTP
+ * status code and the HTTP status message
+ */
+let requestHead = async (u) => {
+  return new Promise((resolve, reject) => {
+    request.head(u, {followRedirect: false}, (err, response) => {
       if (err) {
         debug(err.stack || err);
-        rej(err);
+        reject(err);
       }
       debug('got headers');
-      res({
+      resolve({
         headers: response.headers,
         caseless: response.caseless,
         statusCode: response.statusCode,
@@ -33,10 +34,32 @@ let requestHead = async (_url) => {
   });
 }
 
+/**
+ * Follow redirects in a secure way, unless configured not to.  This function
+ * will ensure that all redirects in a redirect chain are pointing to HTTPS
+ * urls and not HTTP urls.  This is used to ensure that everything in the Cloud
+ * Mirror storage was obtained through with an HTTP chain of custody.  If the 
+ * config parameter 'allowInsecureRedirect' is a truthy value, HTTP urls and 
+ * redirections from HTTPS to HTTP resources will be allowed.
+ *
+ * TODO:
+ * - Ensure that the certificate validation being done here is using
+ *   certificates that we're comfortable with.
+ * - Decide whether the allowedPatterns should factor in here.  Arguably, if we
+ *   start the chain with an allowed url, the redirects after that could be
+ *   considered and implementation detail of the originating url's content
+ *   owner.  The counter argument is that if we only allow some URLs, that we
+ *   should ensure that nothing in the redirect chain is from a site other than
+ *   those.  This can be checked for after this call by using the addresses
+ *   property of the resolution object.
+ */
 let followRedirects = async (firstUrl, cfg = {}) => {
   // Number of redirects to follow
   let limit = cfg.limit || 10;
   let addresses = [];
+
+  // What we're saying here is that all URLs passed through the redirector must
+  // start with https: in order to avoid causing this function to throw
   let validateUrl = (u) => {
     if (!u.match(/^https:/)) {
       let s = 'Refusing to follow unsafe redirects: ';
@@ -49,18 +72,26 @@ let followRedirects = async (firstUrl, cfg = {}) => {
     }
   }
 
+  // If we aren't enforcing secure redirects, it's just easier to make the
+  // validation function a no-op
   if (cfg.allowInsecureRedirect) {
     validateUrl = () => true;
   }
 
-  validateUrl(firstUrl);
-
+  // the u variable points to the URL in the current redirect chain
   let u = firstUrl;
+
+  // the c variable is short for continue and is used to decide whether
+  // to continue following redirects
   let c = true;
+
   for (let i = 0 ; c && i < limit ; i++) {
+    validateUrl(u);
     let result = await requestHead(u);
     let sc = result.statusCode;
 
+    // We store the chain of URLs that make up this redirection.  This could be
+    // used if we wished to provide an audit trail in consuming systems
     addresses.push({
       code: sc,
       url: u,
@@ -68,7 +99,10 @@ let followRedirects = async (firstUrl, cfg = {}) => {
     });
 
     if (sc >= 200 && sc < 300) {
-      validateUrl(u);
+      // A 200 series redirect means that we're done.  We will not follow a 200
+      // URL that has a Location: header because that's not part of the spec.
+      // We can easily change this bit of code to make the choice of redirecting or
+      // not based on the presence of the Location: header later if we choose.
       debug('Follwed all redirects: ' + addresses.map(x => x.url).join(' --> '));
       return {
         url: u,
@@ -76,27 +110,29 @@ let followRedirects = async (firstUrl, cfg = {}) => {
         addresses,
       };
     } else if (sc >= 300 && sc < 400 && sc !== 304 && sc !== 305) {
+      // 304 and 305 are not redirects
       assert(result.caseless.has('location'));
       let newU = result.headers[result.caseless.has('location')];
       newU = url.resolve(u, newU);
-      validateUrl(newU);
       u = url.resolve(u, newU);
     } else {
       // Consider using an exponential backoff and retry here
       throw new Error('HTTP Error while redirecting');
     }
   }
-
   throw new Error(`Limit of ${limit} redirects reached: ${addresses.map(x => x.url).join(' --> ')}`);
 };
 
-// We use this to wrap the upload object returned by s3.upload
-// so that we get a promise interface.  Since this api method
-// does not return the standard AWS.Result class, it's not wrapped
-// in Promises by the promise wrapper
+/**
+ * We use this to wrap the upload object returned by s3.upload so that we get a
+ * promise interface.  Since this api method does not return the standard
+ * AWS.Result class, it's not wrapped in Promises by the aws-sdk-promise
+ * wrapper.  Maybe we should consider adding this wrapper to the
+ * aws-sdk-promise class...
+ */
 let wrapSend = (upload) => {
   return new Promise((res, rej) => {
-    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 15);
+    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 30);
     debug('initiating upload');
     upload.send((err, data) => {
       clearTimeout(abortTimer);
@@ -118,6 +154,20 @@ let wrapSend = (upload) => {
  * by s3-distribute.  All `rawUrl`s passed in must be raw and not using any encoding
  * scheme.  An example of this would be a StorageBackend for the US-West-1 region of
  * S3.
+ *
+ * Options:
+ *  - id: this is the identifier for a given backend.  It's used to uniquely
+ *  identify this particular backend.  This should be unique to the
+ *  billing/usage grouping.  For example, we could have two S3Backend instances
+ *  for us-west-2, but because those two backends do work in the same region
+ *  and have the same billing impact they share an id
+ *  - allowedPatterns: each URL passed into the put() method to insert into our
+ *  cache must match at least one of these regular expressions
+ *  - urlTTL: the amount of time that a cache entry is put into memcached for
+ *  - memcached: a reference to the memcached object we will use to cache our
+ *  backend addresses
+ *  - sqs: a reference to an sqs object which will be used to listen for
+ *  incoming copy requests as well as to send out completion messages
  */
 class StorageBackend {
   constructor(config) {
@@ -148,6 +198,10 @@ class StorageBackend {
     return this;
   }
 
+  /**
+   * Because constructors are not able to be asyncronous, we have an async
+   * init method which will be used to do all async setup
+   */
   async init() {
     this.copyRequestsQueue = await this.sqs.createQueue({
       QueueName: this.copyRequestQueueName,
@@ -155,51 +209,129 @@ class StorageBackend {
     debug(`Copy Request Queue Name: ${this.copyRequestQueueName}`);
   }
 
-  // Insert a rawUrl into the storage backend
+  /**
+   * High level API which inserts a resource specified by a given URL into the
+   * cache.  In this base class, we take care of everything that is not tied to
+   * the individual storage backend system requirements.  This means that
+   * implementing a new backend means only understanding how to do the
+   * low-level operations unique to that platform
+   */
   async put(rawUrl) {
+    /*let valid = false;
+    for (let pattern of this.allowedPatterns) {
+      if (pattern.match(rawUrl)) {
+        valid = true;
+      }
+    }
+    if (!valid) {
+      let err = new Error('URL Does not match any allowed patterns');
+      err.url = rawUrl;
+      err.code = 'NotAllowedUrl';
+      throw err;
+    }*/
+
     debug(`StorageBackend.put("${rawUrl}")`);
     let url = encodeUrl(rawUrl);
     debug(`Encoded URL: ${url}`);
-    let val = {
-      rawUrl: rawUrl,
+
+
+    let memcacheEntry = {
+      originalUrl: rawUrl,
       status: 'pending',
-      backendName: this.storageSubsystemName(rawUrl), 
+      backendName: this.backendAddress(rawUrl), 
     };
-    await this.memcached.set(url, JSON.stringify(val), this.urlTTL);
-    debug(`Set memcached key ${url} to ${JSON.stringify(val)}`);
+
+    await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
+    debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
     // I should create a queue for the pending copy and send
     // a message to it when the copy completes
+
+    // The meter is basically a passthrough stream which lets me count the
+    // number of bytes that go through it.  This lets us collect metrics on the
+    // copying operations better
     let m = meter();
     m.on('error', err => {
       debug('error from stream-meter: %s', err.stack||err);
     });
-    let readInfo = await this.readUrlStream(rawUrl)
+
+    // Get a stream for the input URL as well as some metadata
+    let readInfo = await this.prepareUrlRead(rawUrl);
+
+    // Set up the actual stream with the usage meter so that we can
+    // pass that through to the 
     let readStream = readInfo.stream.pipe(m);
     debug(`Creating read stream for ${rawUrl}`);
-    let name = this.storageSubsystemName(rawUrl);
-    debug(`Storage Subsystem Name ${JSON.stringify(name)}`);
-    debugger;
+
+    // Figure out the name
+    let name = this.backendAddress(rawUrl);
+    debug(`Backend Address: ${JSON.stringify(name)}`);
+
+    // We need the following pieces of information in the service-specific
+    // implementations 
     let contentType = readInfo.meta.headers[readInfo.meta.caseless.has('content-type')];
-    let localUrl = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses);
-    val.status = 'present';
-    // Here's where we'd store in the persistent data store
-    await this.memcached.set(url, JSON.stringify(val), this.urlTTL);
-    debug(`Set memcached key ${url} to ${JSON.stringify(val)}`);
-    debug(`Put a ${m.bytes} byte file`);
-    return localUrl;
+    contentType = contentType || 'application/octet-stream';
+    let upstreamEtag = readInfo.meta.headers[readInfo.meta.caseless.has('etag')];
+
+    // We want metrics on how long it is taking us to transfer files.  This is
+    // done here instead of in the backend because we want to ensure that all
+    // overhead as well as transfer times are taken into account
+    let startTime = new Date();
+    let backendResult = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses, upstreamEtag);
+    let duration = new Date() - startTime;
+
+    // When we start submitting things to Influx, this is the datapoint to use
+    let dataPoint = {
+      id: this.id,
+      inputUrl: rawUrl, 
+      outputUrl: backendResult,
+      duration: duration,
+      fileSize: m.bytes,
+    }
+
+    debug(`Uploaded ${m.bytes} byte file in ${duration/1000}s`);
+    // Here's where we'd store in the persistent data store if we have one
+
+    // Now that the resource is in the cache, we want to make sure that we
+    // reflect that in our memcached.  We do this by setting the status
+    // property of the memcache value to be present.
+    memcacheEntry.status = 'present';
+    memcacheEntry.backendResult = backendResult;
+    await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
+
+    // Here's where we'll send a message on the SQS queue that the transfer is
+    // done so that frontend requests listening for the message can be notified
+    debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
+
+    // Return the information 
+    return memcacheEntry;
   }
 
-  async readUrlStream(rawUrl) {
+  /**
+   * Prepare the needed things for reading from a URL.
+   * At present this means determining the fully redirected
+   * HTTP Url after following only secure redirects as well 
+   * as getting the actual headers for the final resulting
+   * URL.
+   */
+  async prepareUrlRead(rawUrl) {
     let urlInfo = await followRedirects(rawUrl, {
       limit: 20,
       allowInsecureRedirect: true,
     });
+
     let obj = request.get(urlInfo.url);
+
     obj.on('error', err => {
       debug(err.stack || err);
       throw err;
     });
+
+    // We use a Passthrough to ensure that the return from the request library
+    // is properly treated as a Stream and accessed only with the Stream API.
+    // Without this I found that the AWS Sdk would try to serialise the Request
+    // object with JSON and upload that.  Yay software!
     let passthrough = new stream.PassThrough();
+
     return {
       stream: obj.pipe(passthrough),
       url: urlInfo.url,
@@ -208,12 +340,22 @@ class StorageBackend {
     };
   }
 
-  // Implementors must take a raw URL, store it and return the address
-  // to this resource
-  async _put(name, inStream) {
+  /**
+   * Stub method for the backend specific operations to upload the resource
+   * represented by 'inStream' to the address represented by 'name'.  The
+   * original URL, contentType, redirects and upstreamEtag will be passed into
+   * this method for use in the upload process.
+   *
+   * The backend implementation must return a promise that resolves to the
+   * information that can be used to identify the copy of this resource that it
+   * contains.
+   */
+  async _put(name, inStream, _url, contentType, redirects, upstreamEtag) {
     throw new Error('Putting not yet implemented');
   }
 
+  /**
+   */
   async getUrl(rawUrl, doCopy) {
     let url = encodeUrl(rawUrl);
     let loadedUrl = JSON.parse(await this.memcached.get(url));
@@ -241,9 +383,13 @@ class StorageBackend {
     }
   }
 
+
+  /**
+   * Remove all caches for a given URL
+   */
   async expire(rawUrl) {
     let url = encodeUrl(rawUrl);
-    let name = this.storageSubsystemName(rawUrl);
+    let name = this.backendAddress(rawUrl);
     this._expire(name);
     // Here's where we'd delete from database and 
     await this.memcached.del(url);
@@ -255,7 +401,7 @@ class StorageBackend {
 
   // Create a name for the storage subsystem that we'll
   // use to address a resource.  This can be a one way mapping
-  storageSubsystemName(rawUrl) {
+  backendAddress(rawUrl) {
     assert(rawUrl.length <= 1024, 's3 key must be 1024 or fewer unicode characters');
     // Use this header to set the download name: 
     // http://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html#sec19.5.1
@@ -290,12 +436,28 @@ class S3Backend extends StorageBackend {
     }).promise();
   }
 
-  async _putUsingS3Upload(inStream, name, url, contentType, redirects) {
+  async _putUsingS3Upload(inStream, name, url, contentType, redirects, upstreamEtag) {
     assert(inStream);
     assert(name);
     assert(url);
     assert(contentType);
     assert(redirects);
+    let metadata = {
+      url: url,
+      stored: new Date().toISOString(),
+    };
+
+    // We want to show the upstream's ETag to make debugging easier
+    if (upstreamEtag) {
+      metadata['upstream-etag'] = upstreamEtag;
+    }
+
+    // We want to expose the set of redirects that occured when putting this
+    // item into the cache.  We only want this when explicitly requested because
+    // there's no reason to expose this much info by default
+    if (process.env.SET_REDIRECTS_HEADER) {
+      metadata.redirects = JSON.stringify(redirects);
+    }
     let request = {
       Bucket: this.bucket,
       Key: name.key,
@@ -303,43 +465,42 @@ class S3Backend extends StorageBackend {
       ContentType: contentType,
       ContentDisposition: contentDisposition(name.filename),
       ACL: 'public-read',
-      Metadata: {
-        redirects: JSON.stringify(redirects),
-        url: url,
-        stored: new Date().toISOString(),
-      }
+      Metadata: metadata,
     };
     console.dir(request);
     let options = {
-      partSize: 10 * 1024 * 1024,
+      partSize: 32 * 1024 * 1024,
       queueSize: 4,
     };
     debug('s3.upload starting');
     let upload = this.s3.upload(request, options);
+    /*upload.on('httpUploadProgress', progress => {
+      debug(`  * HTTP Upload Progress: ${progress.loaded}`);
+    });*/
     let result = await wrapSend(upload);
     debug('s3.upload result: %j', result);
     return result
   }
 
-  async _put(name, inStream, url, contentType, redirects) {
+  async _put(name, inStream, url, contentType, redirects, upstreamEtag) {
     assert(name, 'missing name for _put');
     assert(inStream, 'missing inStream for _put');
     assert(url);
     assert(contentType);
     assert(redirects);
     assert(inStream instanceof stream.Readable, 'inStream must be stream');
-    return await this.uploadMethod(inStream, name, url, contentType, redirects);
+    return await this.uploadMethod(inStream, name, url, contentType, redirects, upstreamEtag);
   }
 
   // For S3, we want to have a bucket name as well when we address
   // the resource
-  storageSubsystemName(rawUrl) {
+  backendAddress(rawUrl) {
     let urlparts = url.parse(rawUrl);
     let filename = urlparts.pathname.split('/');
     filename = filename[filename.length - 1];
     return {
       bucket: this.bucket,
-      key: super.storageSubsystemName(rawUrl),
+      key: super.backendAddress(rawUrl),
       region: this.region,
       filename: filename,
     };

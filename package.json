@@ -1,0 +1,36 @@
+{
+  "name": "cloud-mirror",
+  "version": "0.0.1",
+  "description": "Proxy files in one cloud storage system to another",
+  "main": "index.js",
+  "scripts": {
+    "compile": "babel-compile -c taskcluster-lib-rules/babel src:lib test:.test",
+    "prepublish": "npm run compile",
+    "pretest": "npm run compile",
+    "test": "mocha .test/*_test.js"
+  },
+  "author": "John Ford <jhford@mozilla.com>",
+  "license": "MPL-2.0",
+  "dependencies": {
+    "aws-sdk": "^2.2.14",
+    "aws-sdk-promise": "0.0.2",
+    "babel-plugin-syntax-async-functions": "^6.1.18",
+    "babel-plugin-transform-async-to-generator": "^6.1.18",
+    "content-disposition": "^0.5.0",
+    "continuation-local-storage": "^3.1.4",
+    "debug": "^2.2.0",
+    "memcache-promise": "0.0.1",
+    "memcached": "^2.2.0",
+    "node-libcurl": "^0.7.0",
+    "request": "^2.65.0",
+    "request-promise": "^1.0.2",
+    "stream-meter": "^1.0.3",
+    "superagent-promise": "^1.0.3",
+    "taskcluster-base": "^0.8.6"
+  },
+  "devDependencies": {
+    "babel-compile": "0.0.3",
+    "mocha": "^2.3.3",
+    "tc-rules": "^1.0.6"
+  }
+}
