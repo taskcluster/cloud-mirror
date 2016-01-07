@@ -1,5 +1,4 @@
-let logging = require('../../lib/log');
-let debug = logging.debugCompat('lib:routes:v1');
+let debug = require('debug')('cloud-mirror:api-v1');
 let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
@@ -7,8 +6,8 @@ let _ = require('lodash');
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
 let api = new base.API({
-  title: '',
-  description: '',
+  title: 'Cloud Mirror API',
+  description: 'Service to duplicate URLs from various cloud providers',
   schemaPrefix: 'http://schemas.taskcluster.net/s3-distribute/v1/',
   params: {
     taskId: GENERIC_ID_PATTERN,
@@ -21,10 +20,10 @@ module.exports = api;
 
 api.declare({
   method: 'get',
-  route: '/redirect/:url/in/:region',
+  route: '/redirect/:service/:region/:url',
   name: 'redirect', 
-  deferAuth: false,
-  scopes: [],
+  //deferAuth: false,
+  //scopes: [],
   title: "Redirect to a bucket in desired region", 
   description: [
     'Redirect to the copy of :url in :region.  If there is',
@@ -35,6 +34,7 @@ api.declare({
 }, async function (req, res) {
   let url = req.params.url;
   let region = req.params.region;
+  let service = req.params.service;
   debug('Would copy %s into %s', url, region);
 });
 

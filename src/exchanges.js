@@ -28,13 +28,13 @@ let commonRoutingKey = [
   }, {
   }, {
     name: 'region',
-    summary: 's3 region that the resource is requested in',
+    summary: 'region that the resource is requested in',
     required: true,
     maxSize: 22,
   }, {
     name: 'reserved',
     summary: 'Space reserved for future routing-key entries, you ' +
-             'should always match this entry with `#`. As ' +
+             'should always match this entry with "#". As ' +
              'automatically done by our tooling, if not specified.',
     multipleWords: true,
     maxSize: 1,

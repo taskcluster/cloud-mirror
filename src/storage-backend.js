@@ -10,6 +10,13 @@ let fs = require('fs');
 let stream = require('stream');
 let meter = require('stream-meter');
 let contentDisposition = require('content-disposition');
+let SQSConsumer = require('sqs-consumer');
+
+function delayer (time) {
+  return new Promise(resolve => {
+    setTimeout(resolve, time);
+  });
+}
 
 /**
  * Obtain a header from a URL.  Do not follow redirects.  Returns the headers,
@@ -21,7 +28,7 @@ let requestHead = async (u) => {
     request.head(u, {followRedirect: false}, (err, response) => {
       if (err) {
         debug(err.stack || err);
-        reject(err);
+        return reject(err);
       }
       debug('got headers');
       resolve({
@@ -132,7 +139,8 @@ let followRedirects = async (firstUrl, cfg = {}) => {
  */
 let wrapSend = (upload) => {
   return new Promise((res, rej) => {
-    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 30);
+    // TODO: Make this configurable?
+    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 60);
     debug('initiating upload');
     upload.send((err, data) => {
       clearTimeout(abortTimer);
@@ -201,12 +209,65 @@ class StorageBackend {
   /**
    * Because constructors are not able to be asyncronous, we have an async
    * init method which will be used to do all async setup
+   *
+   * We should probably have a method in the API which we use to register
+   * a given storage backend's copy request queue along with the metadata
+   * for which region it is... that way we don't have to rely on our URLs
+   * being consistently generated in the same format
    */
   async init() {
-    this.copyRequestsQueue = await this.sqs.createQueue({
+    /*let createQueue = (sqs, name) => { 
+      return new Promise((resolve, reject) => { 
+        sqs.createQueue({
+          QueueName: name,
+        }, (err, data) => {
+            if (err) {
+              console.log(err);
+              console.log('should be rejecting');
+              reject(err);
+            }
+            console.log(data);
+            resolve(data.QueueUrl);
+        });
+      });
+    };
+
+    //await createQueue(this.sqs, this.copyRequestQueueName);*/
+    let data = await this.sqs.createQueue({
       QueueName: this.copyRequestQueueName,
+    }).promise();
+
+    this.copyRequestQueue = data.data.QueueUrl;
+    this.consumer = SQSConsumer.create({
+      queueUrl: this.copyRequestQueue,
+      handleMessage: (message, done) => {
+        if (message.Body) {
+          debug('Handling: %j', message);
+          let body;
+          try {
+            body = JSON.parse(message.Body);
+          } catch (err) {
+            done(err);
+          }
+          this.put(body.url);
+          done();
+        } else {
+          done();
+        }
+      },
+      sqs: this.sqs,
     });
-    debug(`Copy Request Queue Name: ${this.copyRequestQueueName}`);
+  }
+
+  /**
+   * Listen to the Copy Request Queue
+   */
+  async startListeningToRequestQueue() {
+    this.consumer.start();
+  }
+
+  async stopListeningToRequestQueue() {
+    this.consumer.stop();
   }
 
   /**
@@ -217,6 +278,8 @@ class StorageBackend {
    * low-level operations unique to that platform
    */
   async put(rawUrl) {
+    /* NEED TO MAKE SURE THIS WORKS */
+
     /*let valid = false;
     for (let pattern of this.allowedPatterns) {
       if (pattern.match(rawUrl)) {
@@ -230,10 +293,9 @@ class StorageBackend {
       throw err;
     }*/
 
-    debug(`StorageBackend.put("${rawUrl}")`);
+    debug(`Putting "${rawUrl}" into mirrored files`);
     let url = encodeUrl(rawUrl);
     debug(`Encoded URL: ${url}`);
-
 
     let memcacheEntry = {
       originalUrl: rawUrl,
@@ -276,7 +338,17 @@ class StorageBackend {
     // done here instead of in the backend because we want to ensure that all
     // overhead as well as transfer times are taken into account
     let startTime = new Date();
-    let backendResult = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses, upstreamEtag);
+    try {
+      let backendResult = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses, upstreamEtag);
+    } catch (err) {
+      memcacheEntry.status = 'error';
+      memcacheEntry.backendResult = {};
+      memcacheEntry.stack = err.stack || err;
+      await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
+      debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
+      return memcacheEntry;
+    }
+
     let duration = new Date() - startTime;
 
     // When we start submitting things to Influx, this is the datapoint to use
@@ -406,7 +478,6 @@ class StorageBackend {
     // Use this header to set the download name: 
     // http://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html#sec19.5.1
     return crypto.createHash('sha256').update(rawUrl).digest('hex');
-    //return encodeURIComponent(rawUrl);
   }
 
 }
@@ -467,7 +538,6 @@ class S3Backend extends StorageBackend {
       ACL: 'public-read',
       Metadata: metadata,
     };
-    console.dir(request);
     let options = {
       partSize: 32 * 1024 * 1024,
       queueSize: 4,
@@ -550,7 +620,7 @@ function validateBucketName(name, sslVhost = false) {
  * rawUrl Encoding but might turn into something more complicated in future
  */
 function encodeUrl(rawUrl) {
-  return encodeURIComponent(rawUrl);
+  return encodeURIComponent(url.format(url.parse(rawUrl)));
 }
 
 /**
@@ -558,7 +628,7 @@ function encodeUrl(rawUrl) {
  * rawUrl Decoding but might turn into something more complicated in future
  */
 function decodeUrl(rawUrl) {
-  return decodeURIComponent(rawUrl);
+  return decodeURIComponent(url.format(url.parse(rawUrl)));
 }
 
 module.exports = {
