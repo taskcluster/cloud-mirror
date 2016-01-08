@@ -85,13 +85,14 @@ let load = base.loader({
 
   api: {
     requires: [
-      'cfg', /*'publisher',*/ 'validator', 'influx', 'memcached',
+      'cfg', /*'publisher',*/ 'validator', 'influx', 'memcached', 's3backends',
     ],
     setup: (ctx) => v1.setup({
       context: {
         //publisher: ctx.publisher,
         validator: ctx.validator,
         memcached: ctx.memcached,
+        s3backends: ctx.s3backends,
       },
       validator: ctx.validator,
       authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
@@ -118,22 +119,27 @@ let load = base.loader({
     requires: ['cfg', 'sqs', 'memcached', 'profile'], 
     setup: async ({cfg, sqs, memcached, profile}) => {
       // This should probably not all be here...
-      let awsBackends = [];
+      let s3backends = {};
       let regions = cfg.backend.s3.regions.split(',');
       for (let region of regions) {
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
         let s3 = new aws.S3(awsCfg);
         let bucket = cfg.backend.s3.bucketBase + profile || 'development';
-        bucket += '-' + region;
+        bucket +=  '-' + region;
         try {
-          await s3.createBucket({
+          // us-east-1 is a special snowflake
+          let params = {
             Bucket: bucket,
-            CreateBucketConfiguration: {
-              LocationConstraint: region,
-            },
             ACL: cfg.backend.s3.acl,
-          });
+          };
+          if (region !== 'us-east-1') {
+            params.CreateBucketConfiguration = {
+              LocationConstraint: region,
+            };
+          }
+          let response = await s3.createBucket(params).promise();
+          debug(`Created bucket ${bucket} in S3 ${region}`);
         } catch (err) {
           if (err.code !== 'BucketAlreadyExists' &&
               err.code !== 'BucketAlreadyOwnedByYou') {
@@ -151,11 +157,20 @@ let load = base.loader({
           allowedPatterns: [/.*/],
         });
         await backend.init();
-        backend.startListeningToRequestQueue();
-        awsBackends.push(backend);
+        s3backends[region] = backend;
       }
-      return awsBackends;
+      return s3backends;
     },
+  },
+
+  listeningS3Backends: {
+    requires: ['cfg', 's3backends'],
+    setup: async ({s3backends}) => {
+      for (let region of _.keys(s3backends)) {
+        s3backends[region].startListeningToRequestQueue();
+      }
+      return s3backends;
+    }
   },
 
 }, ['profile', 'process']);

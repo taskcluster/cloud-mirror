@@ -20,7 +20,13 @@ module.exports = api;
 
 api.declare({
   method: 'get',
-  route: '/redirect/:service/:region/:url',
+  // Note that the Error parameter is only here to check for improperly
+  // URL-Encoded URLs.  This would likely cause errors if this API were
+  // included in the taskcluster-client* packages.  Maybe we should have a
+  // parameter to api.declare that lets us ignore certain endpoints from
+  // generated API-References.  A value of '', e.g "/redirect/s/r/u/" would be
+  // fine, it just has to evaluate as falsy
+  route: '/redirect/:service/:region/:url/:error?',
   name: 'redirect', 
   //deferAuth: false,
   //scopes: [],
@@ -30,12 +36,70 @@ api.declare({
     'no copy of the file in that region, submit a request to',
     'backend process to copy into that region and wait to respond',
     'here until that happens',
+    '',
+    'NOTE: URL parameter must be URL Encoded!',
+    '',
+    'NOTE: If using this with an api-reference consuming client',
+    'you will need to pass error as an empty string!',
   ].join('\n'),
 }, async function (req, res) {
   let url = req.params.url;
   let region = req.params.region;
   let service = req.params.service;
-  debug('Would copy %s into %s', url, region);
+  let error = req.params.error;
+  if (error) {
+    return res.status(400).json({
+      msg: 'URL Must be URL encoded!',
+    });
+  }
+  let logthingy = `${url} in ${service}/${region}`;
+  debug(`Attempting to redirect to ${logthingy}`);
+
+  if (service.toLowerCase() === 's3') {
+    if (this.s3backends[region]) {
+      let backend = this.s3backends[region];
+      let result = await backend.getBackendUrl(url);
+      if (result.status === 'present') {
+        debug(`${logthingy} is present`);
+        res.status(302);
+        res.location(result.url);
+        // Instead of just returning result object, we want to return only
+        // known properties.  This is to avoid possible leakage
+        res.json({
+          status: result.status,
+          url: result.url,
+        });
+      } else if (result.status === 'pending') {
+        debug(`${logthingy} is pending`);
+        res.status(202);
+        res.json({
+          status: result.status,
+          futureUrl: result.url,
+          noteOnFutureUrl: 'future url is not authoritatively where the' +
+                           ' resource will be located.  Do not rely on' + 
+                           ' this information!',
+        });
+      } else if (result.status === 'error') {
+        debug(`${logthingy} is in error state`);
+        res.status(400);
+        res.json({
+          msg: 'Backend was unable to cache this item',
+        });
+      } else {
+        throw new Error('Huh, should not be able to get here!');
+      }
+    } else {
+      debug(`Region not configured for ${logthingy}`);
+      return res.status(400).json({
+        msg: `Region '${region}' is not configured for ${service}`,
+      });
+    }
+  } else {
+      debug(`Service not known for ${logthingy}`);
+    return res.status(400).json({
+      msg: `Service '${service}' is not known`,
+    });
+  }
 });
 
 api.declare({

@@ -216,42 +216,35 @@ class StorageBackend {
    * being consistently generated in the same format
    */
   async init() {
-    /*let createQueue = (sqs, name) => { 
-      return new Promise((resolve, reject) => { 
-        sqs.createQueue({
-          QueueName: name,
-        }, (err, data) => {
-            if (err) {
-              console.log(err);
-              console.log('should be rejecting');
-              reject(err);
-            }
-            console.log(data);
-            resolve(data.QueueUrl);
-        });
-      });
-    };
-
-    //await createQueue(this.sqs, this.copyRequestQueueName);*/
     let data = await this.sqs.createQueue({
       QueueName: this.copyRequestQueueName,
     }).promise();
+
+    // It seems like SQSConsumer rebinds the functions
+    // and I don't want to do let that = this;
+    let that = this;
 
     this.copyRequestQueue = data.data.QueueUrl;
     this.consumer = SQSConsumer.create({
       queueUrl: this.copyRequestQueue,
       handleMessage: (message, done) => {
         if (message.Body) {
-          debug('Handling: %j', message);
           let body;
           try {
             body = JSON.parse(message.Body);
           } catch (err) {
             done(err);
           }
-          this.put(body.url);
-          done();
+          debug(`Received put request for ${that.id}: ${body.url}`);
+          that.put.call(that, body.url).then(() => {
+            debug(`Put request Completed for ${that.id}: ${body.url}`);
+            done();
+          }, err => {
+            debug('Error calling put in handler: ' + err.stack || err); 
+            done();
+          });
         } else {
+          debug('Received an empty message, huh?');
           done();
         }
       },
@@ -278,8 +271,7 @@ class StorageBackend {
    * low-level operations unique to that platform
    */
   async put(rawUrl) {
-    /* NEED TO MAKE SURE THIS WORKS */
-
+    /* NEED TO MAKE SURE ALLOWEDPATTERNS WORKS */
     /*let valid = false;
     for (let pattern of this.allowedPatterns) {
       if (pattern.match(rawUrl)) {
@@ -294,17 +286,13 @@ class StorageBackend {
     }*/
 
     debug(`Putting "${rawUrl}" into mirrored files`);
-    let url = encodeUrl(rawUrl);
-    debug(`Encoded URL: ${url}`);
+    let cacheName = encodeUrl(rawUrl);
+    debug(`Encoded URL: ${cacheName}`);
 
-    let memcacheEntry = {
-      originalUrl: rawUrl,
-      status: 'pending',
-      backendName: this.backendAddress(rawUrl), 
-    };
+    let backendAddress = this.backendAddress(rawUrl);
 
-    await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
-    debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
+    await this.storeAddress(rawUrl, 'pending', backendAddress);
+
     // I should create a queue for the pending copy and send
     // a message to it when the copy completes
 
@@ -325,8 +313,7 @@ class StorageBackend {
     debug(`Creating read stream for ${rawUrl}`);
 
     // Figure out the name
-    let name = this.backendAddress(rawUrl);
-    debug(`Backend Address: ${JSON.stringify(name)}`);
+    debug(`Backend Address: ${JSON.stringify(backendAddress)}`);
 
     // We need the following pieces of information in the service-specific
     // implementations 
@@ -339,43 +326,35 @@ class StorageBackend {
     // overhead as well as transfer times are taken into account
     let startTime = new Date();
     try {
-      let backendResult = await this._put(name, readStream, readInfo.url, contentType, readInfo.addresses, upstreamEtag);
+      await this._put(backendAddress,
+                      readStream,
+                      readInfo.url,
+                      contentType,
+                      readInfo.addresses,
+                      upstreamEtag);
     } catch (err) {
-      memcacheEntry.status = 'error';
-      memcacheEntry.backendResult = {};
-      memcacheEntry.stack = err.stack || err;
-      await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
-      debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
-      return memcacheEntry;
+      await this.storeAddress(rawUrl, 'error', {}, err.stack || err);
+      return;
     }
 
-    let duration = new Date() - startTime;
-
     // When we start submitting things to Influx, this is the datapoint to use
+    let duration = new Date() - startTime;
     let dataPoint = {
       id: this.id,
       inputUrl: rawUrl, 
-      outputUrl: backendResult,
+      outputUrl: 'notused',
       duration: duration,
       fileSize: m.bytes,
     }
 
     debug(`Uploaded ${m.bytes} byte file in ${duration/1000}s`);
-    // Here's where we'd store in the persistent data store if we have one
 
     // Now that the resource is in the cache, we want to make sure that we
     // reflect that in our memcached.  We do this by setting the status
     // property of the memcache value to be present.
-    memcacheEntry.status = 'present';
-    memcacheEntry.backendResult = backendResult;
-    await this.memcached.set(url, JSON.stringify(memcacheEntry), this.urlTTL);
+    await this.storeAddress(rawUrl, 'present', backendAddress);
 
-    // Here's where we'll send a message on the SQS queue that the transfer is
-    // done so that frontend requests listening for the message can be notified
-    debug(`Set memcached key ${url} to ${JSON.stringify(memcacheEntry)}`);
-
-    // Return the information 
-    return memcacheEntry;
+    return;
   }
 
   /**
@@ -412,6 +391,37 @@ class StorageBackend {
     };
   }
 
+  async storeAddress(rawUrl, status, backendAddress, stack) {
+    assert(rawUrl);
+    assert(status);
+    assert(backendAddress);
+
+    let memcachedEntry = {
+      originalUrl: rawUrl,
+      status: status,
+      backendAddress: backendAddress,
+    }
+
+    if (status === 'error') {
+      assert(stack);
+      memcachedEntry.stack = stack;
+    } else {
+      assert(!stack);
+    }
+    let key = encodeURIComponent(rawUrl); 
+    let jsonVersion = JSON.stringify(memcachedEntry);
+    debug(`MEMCACHE SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
+    await this.memcached.set(key, jsonVersion, this.urlTTL);
+  }
+
+  async readAddressFromCache(rawUrl) {
+    assert(rawUrl);
+    let key = encodeURIComponent(rawUrl);
+    let jsonVersion = await this.memcached.get(key);
+    debug(`MEMCACHE GET: ${key}, ${jsonVersion}`);
+    return jsonVersion ? JSON.parse(jsonVersion) : undefined;
+  }
+
   /**
    * Stub method for the backend specific operations to upload the resource
    * represented by 'inStream' to the address represented by 'name'.  The
@@ -428,31 +438,68 @@ class StorageBackend {
 
   /**
    */
-  async getUrl(rawUrl, doCopy) {
-    let url = encodeUrl(rawUrl);
-    let loadedUrl = JSON.parse(await this.memcached.get(url));
-    let localUrl;
+  async requestPut(rawUrl) {
+    let sqsParams = {
+      QueueUrl: this.copyRequestQueue,
+      MessageBody: JSON.stringify({
+        url: rawUrl,
+      }),
+    };
+    await this.sqs.sendMessage(sqsParams).promise();
+  }
 
-    if (!loadedUrl) {
-      // Here's where we'd load from the persistent data store
-      // and overwrite loadedUrl
-    }
+  /**
+   */
+  async getBackendUrl(rawUrl) {
+    let cacheEntry = await this.readAddressFromCache(rawUrl);
 
-    if (!loadedUrl && doCopy) {
-      return await this.put(rawUrl);
-    } else if (!loadedUrl) {
-      throw new Error('File not found in storage');
-    } else {
-      if (loadedUrl.status === 'present') {
-        return loadedUrl.rawUrl;
-      } else if (loadedUrl.status === 'pending') {
-        // What I should do here is subscribe to an SQS queue that's addressed
-        // by the encoded url
-        throw new Error('copy is pending from something else');
+    let backendUrl = this.backendAddressToUrl(this.backendAddress(rawUrl));
+
+    if (!cacheEntry) {
+      debug(`Cache entry not found for ${rawUrl}`);
+      // FIRST CHECK IF THE THING EXISTS FOR REAL AND INSERT
+      // IF IT DOES!
+      let headers = await requestHead(backendUrl);
+      debug(headers.statusCode);
+      if (headers.statusCode >= 200 && headers.statusCode < 300) {
+        debug(`Found ${rawUrl} in backend, caching values`);
+        await this.storeAddress(rawUrl, 'present', this.backendAddress(rawUrl));
+        return {
+          status: 'present',
+          url: backendUrl,
+        }
       } else {
-        throw new Error('Unexpected resource status');
+        debug(`Did not find ${rawUrl} in backend, inserting`);
+        this.requestPut(rawUrl);
+        return { 
+          status: 'pending',
+          url: backendUrl,
+        };
       }
+      
     }
+    
+    if (cacheEntry.status === 'error') {
+      this.requestPut(rawUrl);
+      return { 
+        status: 'pending',
+        url: backendUrl,
+      };
+    } else if (cacheEntry.status === 'pending') {
+      return { 
+        status: 'pending',
+        url: backendUrl,
+      };
+    } else if (cacheEntry.status === 'present') {
+      debug(`Cache entry found for ${rawUrl} found`);
+      return {
+        status: 'present',
+        url: backendUrl,
+      };
+    }
+
+    return returnValue;
+
   }
 
 
@@ -477,7 +524,16 @@ class StorageBackend {
     assert(rawUrl.length <= 1024, 's3 key must be 1024 or fewer unicode characters');
     // Use this header to set the download name: 
     // http://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html#sec19.5.1
-    return crypto.createHash('sha256').update(rawUrl).digest('hex');
+    return encodeURIComponent(rawUrl);
+  }
+
+  // Create a real URL from a backend address
+  backendAddressToUrl(backendAddress) {
+    // We throw here because it's impossible to know how the implementing class
+    // will map this backend address into a real url.  Simply decoding the URL
+    // would mean that the cache isn't used and that's the only thing we know
+    // how to do with this data 
+    throw new Error('Unimplemented');
   }
 
 }
@@ -529,9 +585,13 @@ class S3Backend extends StorageBackend {
     if (process.env.SET_REDIRECTS_HEADER) {
       metadata.redirects = JSON.stringify(redirects);
     }
+
+    // We need to URL decode the Key because the S3 library
+    // is smart enough to URL encode itself, and we otherwise
+    // end up with double encoding
     let request = {
       Bucket: this.bucket,
-      Key: name.key,
+      Key: decodeURIComponent(name.key),
       Body: inStream,
       ContentType: contentType,
       ContentDisposition: contentDisposition(name.filename),
@@ -574,6 +634,26 @@ class S3Backend extends StorageBackend {
       region: this.region,
       filename: filename,
     };
+  }
+
+  backendAddressToUrl(backendAddress) {
+    // http://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region
+    let r = backendAddress.region;
+    let s3Domain;
+
+    if (r === 'us-east-1') {
+      s3Domain = 's3.amazonaws.com';
+    } else {
+      s3Domain = `s3-${r}.amazonaws.com`;
+    }
+
+    let vhost = backendAddress.bucket + '.' + s3Domain;
+    return url.format({
+      protocol: 'https:',
+      host: vhost,
+      pathname: backendAddress.key
+    });
+
   }
 }
 
