@@ -103,6 +103,46 @@ api.declare({
 });
 
 api.declare({
+  method: 'delete',
+  route: '/expire/:service/:region/:url/:error?',
+  name: 'expire',
+  title: 'Expire resource',
+  description: [
+    'Documented later...',
+  ].join('\n'),
+}, async function (req, res) {
+  let url = req.params.url;
+  let region = req.params.region;
+  let service = req.params.service;
+  let error = req.params.error;
+  if (error) {
+    return res.status(400).json({
+      msg: 'URL Must be URL encoded!',
+    });
+  }
+  let logthingy = `${url} in ${service}/${region}`;
+  debug(`Attempting to expire ${logthingy}`);
+
+  if (service.toLowerCase() === 's3') {
+    if (this.s3backends[region]) {
+      let backend = this.s3backends[region];
+      let result = await backend.expire(url);
+      return res.status(204).send();
+    } else {
+      debug(`Region not configured for ${logthingy}`);
+      return res.status(400).json({
+        msg: `Region '${region}' is not configured for ${service}`,
+      });
+    }
+  } else {
+      debug(`Service not known for ${logthingy}`);
+    return res.status(400).json({
+      msg: `Service '${service}' is not known`,
+    });
+  }
+});
+
+api.declare({
   method: 'get',
   route: '/ping',
   name: 'ping',
