@@ -154,7 +154,9 @@ let load = base.loader({
           sqs: sqs,
           s3: s3,
           memcached: memcached,
-          allowedPatterns: [/.*/],
+          redirectLimit: cfg.app.redirectLimit,
+          ensureSSL: cfg.app.ensureSSL,
+          allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
         });
         await backend.init();
         s3backends[region] = backend;

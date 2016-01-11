@@ -52,12 +52,36 @@ api.declare({
       msg: 'URL Must be URL encoded!',
     });
   }
+
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to redirect to ${logthingy}`);
 
   if (service.toLowerCase() === 's3') {
     if (this.s3backends[region]) {
       let backend = this.s3backends[region];
+      try {
+        await backend.validateInputURL(url);
+      } catch (err) {
+        debug(err);
+        debug(err.stack);
+        // Intentionally vague because we don't want to reveal
+        // our configuration too much
+        let msg = 'Input URL failed validation for unknown reason';
+        switch (err.code) {
+          case 'HTTPError':
+            msg = 'HTTP Error while trying to resolve redirects';
+            break;
+          case 'DoesNotMatchPatterns':
+            msg = 'Input URL does not match whitelist';
+            break;
+          case 'InsecureURL':
+            msg = 'Refusing to follow a non-SSL redirect';
+            break;
+        }
+        return res.status(400).json({
+          msg: msg,
+        });
+      }
       let result = await backend.getBackendUrl(url);
       if (result.status === 'present') {
         debug(`${logthingy} is present`);
@@ -65,14 +89,14 @@ api.declare({
         res.location(result.url);
         // Instead of just returning result object, we want to return only
         // known properties.  This is to avoid possible leakage
-        res.json({
+        return res.json({
           status: result.status,
           url: result.url,
         });
       } else if (result.status === 'pending') {
         debug(`${logthingy} is pending`);
         res.status(202);
-        res.json({
+        return res.json({
           status: result.status,
           futureUrl: result.url,
           noteOnFutureUrl: 'future url is not authoritatively where the' +
@@ -82,7 +106,7 @@ api.declare({
       } else if (result.status === 'error') {
         debug(`${logthingy} is in error state`);
         res.status(400);
-        res.json({
+        return res.json({
           msg: 'Backend was unable to cache this item',
         });
       } else {
