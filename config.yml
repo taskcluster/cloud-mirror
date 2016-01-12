@@ -68,13 +68,14 @@ defaults:
 # Configuration in production
 production:
   taskcluster:
-    authBaseUrl:      https://auth.taskcluster.net/v1
+    authBaseUrl: https://auth.taskcluster.net/v1
   server:
-    publicUrl:        https://cloud-mirror.taskcluster.net
-    env:              production
-    forceSSL:         true
-    trustProxy:       true
+    publicUrl: https://cloud-mirror.taskcluster.net
+    env: production
+    forceSSL: true
+    trustProxy: true
 
 development:
   server:
     port: 5555
+    env: development

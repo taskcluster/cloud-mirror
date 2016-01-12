@@ -125,7 +125,7 @@ let load = base.loader({
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
         let s3 = new aws.S3(awsCfg);
-        let bucket = cfg.backend.s3.bucketBase + profile || 'development';
+        let bucket = cfg.backend.s3.bucketBase + cfg.server.env;
         bucket +=  '-' + region;
         try {
           // us-east-1 is a special snowflake

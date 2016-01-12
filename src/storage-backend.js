@@ -134,7 +134,6 @@ class StorageBackend {
     // rawUrls to determine if they are allowed in this system
     assert(this.config.allowedPatterns, 'Must specify allowed patterns URLs');
     this.allowedPatterns = this.config.allowedPatterns;
-    console.log(this.allowedPatterns);
 
     // This is the number of seconds that we should keep the url in cache
     assert(this.config.urlTTL, 'Must specify how long to keep urls in cache');
