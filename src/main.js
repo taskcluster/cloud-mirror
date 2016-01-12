@@ -166,7 +166,7 @@ let load = base.loader({
   },
 
   listeningS3Backends: {
-    requires: ['cfg', 's3backends'],
+    requires: ['cfg', 's3backends', 'monitor'],
     setup: async ({s3backends}) => {
       for (let region of _.keys(s3backends)) {
         s3backends[region].startListeningToRequestQueue();

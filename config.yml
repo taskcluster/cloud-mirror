@@ -1,0 +1,80 @@
+defaults:
+  app:
+    publishMetaData:              !env:bool PUBLISH_METADATA
+    exchangePrefix:               v1/
+
+    # Component property in the responseTime and process statistics
+    statsComponent:               cloud-mirror
+
+    ensureSSL: true
+    redirectLimit: 20
+    allowedPatterns:
+      - '^https://www.mozilla.org/'
+
+  taskcluster:
+    authBaseUrl: https://auth.taskcluster.net/v1
+    credentials:
+      clientId: !env TASKCLUSTER_CLIENT_ID
+      accessToken: !env TASKCLUSTER_ACCESS_TOKEN
+
+  server:
+    port: !env:number PORT
+    publicUrl: !env PUBLIC_URL
+    env: !env NODE_ENV
+    forceSSL: !env:flag FORCE_SSL
+    trustProxy: false
+
+  backend:
+    s3:
+      regions: 'us-west-1,us-east-1'
+      acl: 'public-read'
+      objectTTL: 86400 # 24 hours
+      bucketBase: 'cloud-mirror-'
+    memcachedTTL: 84600 # 23.5 hours
+
+  # Azure credentials (for table, blob and queue storage)
+  azure:
+    accountName: !env AZURE_ACCOUNT_NAME
+    accountKey: !env AZURE_ACCOUNT_KEY
+
+  pulse:
+    username: !env PULSE_USERNAME
+    password: !env PULSE_PASSWORD
+
+  influx:
+    connectionString: !env INFLUX_CONNECTION
+    maxDelay: 300
+    maxPendingPoints: 300
+
+  memcached:
+    servers: 'localhost:11211'
+
+  sqs:
+    accessKeyId: !env AWS_ACCESS_KEY_ID
+    secretAccessKey: !env AWS_SECRET_ACCESS_KEY
+    region: us-west-2
+    apiVersion: 2012-11-05
+
+  # NOTE: this aws section is the AWS for the API Server
+  # and credentials for the backend only
+  aws:
+    # Credentials with access to artifact buckets and
+    # references/schemas.taskcluster.net if you wish to publish meta-data
+    accessKeyId: !env AWS_ACCESS_KEY_ID
+    secretAccessKey: !env AWS_SECRET_ACCESS_KEY
+    region: us-west-2
+    apiVersion: 2014-01-01
+
+# Configuration in production
+production:
+  taskcluster:
+    authBaseUrl:      https://auth.taskcluster.net/v1
+  server:
+    publicUrl:        https://cloud-mirror.taskcluster.net
+    env:              production
+    forceSSL:         true
+    trustProxy:       true
+
+development:
+  server:
+    port: 5555
