@@ -2,6 +2,7 @@ let debug = require('debug')('cloud-mirror:api-v1');
 let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
+let delayer = require('./delayer');
 
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
@@ -82,36 +83,51 @@ api.declare({
           msg: msg,
         });
       }
-      let result = await backend.getBackendUrl(url);
-      if (result.status === 'present') {
-        debug(`${logthingy} is present`);
-        res.status(302);
-        res.location(result.url);
-        // Instead of just returning result object, we want to return only
-        // known properties.  This is to avoid possible leakage
-        return res.json({
-          status: result.status,
-          url: result.url,
-        });
-      } else if (result.status === 'pending') {
-        debug(`${logthingy} is pending`);
-        res.status(202);
-        return res.json({
-          status: result.status,
-          futureUrl: result.url,
-          noteOnFutureUrl: 'future url is not authoritatively where the' +
-                           ' resource will be located.  Do not rely on' + 
-                           ' this information!',
-        });
-      } else if (result.status === 'error') {
-        debug(`${logthingy} is in error state`);
-        res.status(400);
-        return res.json({
-          msg: 'Backend was unable to cache this item',
-        });
-      } else {
-        throw new Error('Huh, should not be able to get here!');
+
+      let maxWaitForCachedCopy = 90 * 1000;
+
+      let startTime = new Date();
+      let x = 0;
+      while ((new Date() - startTime) < maxWaitForCachedCopy) {
+        debug(`Check ${x++} of ${url}`);
+        let result = await backend.getBackendUrl(url);
+        if (result.status === 'present') {
+          debug(`${logthingy} is present`);
+          res.status(302);
+          res.location(result.url);
+          // Instead of just returning result object, we want to return only
+          // known properties.  This is to avoid possible leakage
+          let datapoint = {
+            url: url,
+            service: service,
+            region: region,
+          }
+          debug(`Found ${url}`);
+          return res.json({
+            status: result.status,
+            url: result.url,
+          });
+        }
+        // When we have Influx set up, let's submit this datapoint
+        // to a series called 'Cloud Mirror Cache Hits'
+        await delayer(1000);
       }
+      // If we get here, we're doing the fallback of redirecting
+      // to the original URL
+      debug(`Redirecting to uncached copy because it took too long ${url}`);
+      res.status(302);
+      res.location(url);
+      // When we have Influx set up, let's submit this datapoint
+      // to a series called 'Cloud Mirror Cache Misses'
+      let datapoint = {
+        url: url,
+        service: service,
+        region: region,
+      }
+      return res.json({
+        url: url,
+        msg: `Cached copy did not show up in ${maxWaitForCachedCopy/1000}s`,
+      });
     } else {
       debug(`Region not configured for ${logthingy}`);
       return res.status(400).json({

@@ -1,25 +1,26 @@
 FROM fedora:22
 MAINTAINER John Ford
 
-# some of this is from: https://github.com/nodejs/docker-node/blob/d798690bdae91174715ac083e31198674f044b68/0.12/Dockerfile
+# Based on the official Dockerfiles from: https://github.com/nodejs/docker-node
 
 LABEL description="This image is used to run the cloud mirror"
 RUN dnf upgrade -y
-RUN dnf install -y /usr/bin/gpg /usr/bin/tar libcurl-devel
+RUN dnf install -y /usr/bin/gpg /usr/bin/tar libcurl-devel /usr/bin/git
 
-ENV NODE_ENV ${NODE_ENV:-development}
-ENV PORT ${PORT:-8080}
 ENV APPDIR /app
 WORKDIR /${APPDIR}
 
 # Environment variables for setting up node
-ENV NODE_VERSION ${NODE_VERSION:-0.12.7}
-ENV NPM_VERSION ${NPM_VERSION:-2.11.2
+ENV NODE_VERSION 5.4.0
 
 RUN set -ex \
 	&& for key in \
-		7937DFD2AB06298B2293C3187D33FF9D0246406D \
-		114F43EE0176B71C7BC219DD50A3051F888C628D \
+    9554F04D7259F04124DE6B476D5A82AC7E37093B \
+    94AE36675C464D64BAFA68DD7434390BDBE9B9C5 \
+    0034A06D9D9B0064CE8ADF6BF1747F4AD2306D93 \
+    FD3A5288F042B6850C66B31F09FE44734EB7990E \
+    71DCFD284A79C3B38668286BC97EC7A07EDE3FC1 \
+    DD8F2338BAE7501E3DD5AC78C273792F7D83545D \
 	; do \
 		gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; \
 	done
@@ -29,13 +30,13 @@ RUN curl -SLO "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-
 	&& gpg --verify SHASUMS256.txt.asc \
 	&& grep " node-v$NODE_VERSION-linux-x64.tar.gz\$" SHASUMS256.txt.asc | sha256sum -c - \
 	&& tar -xzf "node-v$NODE_VERSION-linux-x64.tar.gz" -C /usr/local --strip-components=1 \
-	&& rm "node-v$NODE_VERSION-linux-x64.tar.gz" SHASUMS256.txt.asc \
-	&& npm install -g npm@"$NPM_VERSION" \
-	&& npm cache clear
+	&& rm "node-v$NODE_VERSION-linux-x64.tar.gz" SHASUMS256.txt.asc
 
 EXPOSE $PORT
 ADD . ${APPDIR}
 
 RUN cd ${APPDIR} && npm install .
 
-CMD [ "node" ]
+ENTRYPOINT [ "node", "lib/main.js" ]
+
+CMD [ "listeningS3Backends" ]

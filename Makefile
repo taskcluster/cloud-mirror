@@ -6,8 +6,8 @@ build:
 
 .PHONY: build-docker-image
 build-docker-image:
-	sudo docker build -t s3-distribute .
+	sudo docker build -t cloud-mirror .
 
 .PHONY: start-frontend
-start-frontend:
-	sudo docker run s3-distribute node lib/frontend.js
+start-server:
+	sudo docker run cloud-mirror node lib/frontend.js

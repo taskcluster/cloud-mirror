@@ -9,7 +9,7 @@ let assert = require('assert');
 let taskcluster = require('taskcluster-client');
 let Memcached = require('memcache-promise');
 let aws = require('aws-sdk-promise');
-let storageBackend = require('./storage-backend');
+let s3Backend = require('./s3-backend');
 
 //let exchanges = require('./exchanges');
 let v1 = require('./api-v1');
@@ -121,12 +121,16 @@ let load = base.loader({
       // This should probably not all be here...
       let s3backends = {};
       let regions = cfg.backend.s3.regions.split(',');
+
       for (let region of regions) {
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
         let s3 = new aws.S3(awsCfg);
         let bucket = cfg.backend.s3.bucketBase + cfg.server.env;
         bucket +=  '-' + region;
+        if (!s3Backend.validateS3BucketName(bucket, true)) {
+          throw new Error('Cannot create S3 bucket with invalid name: ' + bucket);
+        }
         try {
           // us-east-1 is a special snowflake
           let params = {
@@ -147,7 +151,7 @@ let load = base.loader({
           }
           debug('S3 Bucket already exists');
         }
-        let backend = new storageBackend.S3Backend({
+        let backend = new s3Backend.S3Backend({
           region: region,
           bucket: bucket,
           urlTTL: cfg.backend.memcachedTTL,
