@@ -453,7 +453,7 @@ class StorageBackend {
     this._expire(backendAddress);
     // Here's where we'd delete from database and 
     let key = encodeURL(rawUrl);
-    debug(`${this.id} MEMCACHE DEL: %{key}`);
+    debug(`${this.id} MEMCACHED DEL: ${key}`);
     await this.memcached.del(key);
   }
 
@@ -525,7 +525,7 @@ class StorageBackend {
 
     let key = encodeURL(rawUrl); 
     let jsonVersion = JSON.stringify(memcachedEntry);
-    debug(`${this.id} MEMCACHE SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
+    debug(`${this.id} MEMCACHED SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
     await this.memcached.set(key, jsonVersion, this.urlTTL);
   }
 
@@ -539,7 +539,7 @@ class StorageBackend {
     assert(rawUrl);
     let key = encodeURL(rawUrl);
     let jsonVersion = await this.memcached.get(key);
-    debug(`${this.id} MEMCACHE GET: ${key}, ${jsonVersion}`);
+    debug(`${this.id} MEMCACHED GET: ${key}, ${jsonVersion}`);
     return jsonVersion ? JSON.parse(jsonVersion) : undefined;
   }
 

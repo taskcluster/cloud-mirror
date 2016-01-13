@@ -31,7 +31,7 @@ api.declare({
   name: 'redirect', 
   //deferAuth: false,
   //scopes: [],
-  title: "Redirect to a bucket in desired region", 
+  title: "Redirect to backing cache", 
   description: [
     'Redirect to the copy of :url in :region.  If there is',
     'no copy of the file in that region, submit a request to',
@@ -128,6 +128,68 @@ api.declare({
         url: url,
         msg: `Cached copy did not show up in ${maxWaitForCachedCopy/1000}s`,
       });
+    } else {
+      debug(`Region not configured for ${logthingy}`);
+      return res.status(400).json({
+        msg: `Region '${region}' is not configured for ${service}`,
+      });
+    }
+  } else {
+      debug(`Service not known for ${logthingy}`);
+    return res.status(400).json({
+      msg: `Service '${service}' is not known`,
+    });
+  }
+});
+
+api.declare({
+  method: 'delete',
+  // Note that the Error parameter is only here to check for improperly
+  // URL-Encoded URLs.  This would likely cause errors if this API were
+  // included in the taskcluster-client* packages.  Maybe we should have a
+  // parameter to api.declare that lets us ignore certain endpoints from
+  // generated API-References.  A value of '', e.g "/redirect/s/r/u/" would be
+  // fine, it just has to evaluate as falsy
+  route: '/purge/:service/:region/:url/:error?',
+  name: 'purge', 
+  //deferAuth: false,
+  //scopes: [],
+  title: "Purge resource from backing cache", 
+  description: [
+    'Redirect to the copy of :url in :region.  If there is',
+    'no copy of the file in that region, submit a request to',
+    'backend process to copy into that region and wait to respond',
+    'here until that happens',
+    '',
+    'NOTE: URL parameter must be URL Encoded!',
+    '',
+    'NOTE: If using this with an api-reference consuming client',
+    'you will need to pass error as an empty string!',
+  ].join('\n'),
+}, async function (req, res) {
+  let url = req.params.url;
+  let region = req.params.region;
+  let service = req.params.service;
+  let error = req.params.error;
+  if (error) {
+    return res.status(400).json({
+      msg: 'URL Must be URL encoded!',
+    });
+  }
+
+  let logthingy = `${url} in ${service}/${region}`;
+  debug(`Attempting to purge ${logthingy}`);
+
+  if (service.toLowerCase() === 's3') {
+    if (this.s3backends[region]) {
+      let backend = this.s3backends[region];
+      // NOTE: Currently this just does the S3 api call to delete
+      // the object in the webserver's response.  This is a small
+      // call with a small response, so we'll just do it here.
+      // If this becomes a problem, we should use SQS to shell the
+      // process out to the backend
+      await backend.expire(url);
+      return res.status(204).send();
     } else {
       debug(`Region not configured for ${logthingy}`);
       return res.status(400).json({

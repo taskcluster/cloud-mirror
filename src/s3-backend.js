@@ -65,11 +65,13 @@ class S3Backend extends StorageBackend {
   /**
    * Delete from S3
    */
-  async _expire(rawUrl) {
+  async _expire(backendAddress) {
+    debug(`${this.id} Deleting ${backendAddress.bucket}:${backendAddress.key}`);
     await this.s3.deleteObject({
-      Bucket: this.bucket,
-      Key: encodeURL(rawUrl),
+      Bucket: backendAddress.bucket,
+      Key: backendAddress.key,
     }).promise();
+    debug(`${this.id} Deleted ${backendAddress.bucket}:${backendAddress.key}`);
   }
 
   /**
