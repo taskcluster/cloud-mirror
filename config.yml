@@ -26,10 +26,10 @@ defaults:
 
   backend:
     s3:
-      regions: 'us-west-1,us-east-1'
+      regions: 'us-west-1,us-east-1,eu-central-1'
       acl: 'public-read'
-      objectTTL: 86400 # 24 hours
       bucketBase: 'cloud-mirror-'
+      lifespan: 1 # in days, how long should S3 keep this
     memcachedTTL: 84600 # 23.5 hours
 
   # Azure credentials (for table, blob and queue storage)

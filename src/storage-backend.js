@@ -40,31 +40,7 @@ let requestHead = async (u) => {
   });
 }
 
-/**
- * We use this to wrap the upload object returned by s3.upload so that we get a
- * promise interface.  Since this api method does not return the standard
- * AWS.Result class, it's not wrapped in Promises by the aws-sdk-promise
- * wrapper.  Maybe we should consider adding this wrapper to the
- * aws-sdk-promise class...
- */
-let wrapSend = (upload) => {
-  return new Promise((res, rej) => {
-    // TODO: Make this configurable?
-    let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 60);
-    debug('initiating upload');
-    upload.send((err, data) => {
-      clearTimeout(abortTimer);
-      if (err) {
-        debug('upload error');
-        debug(err.stack || err);
-        rej(err);
-      } else {
-        debug('upload completed');
-        res(data);
-      }
-    });
-  });
-};
+
 //http://docs.aws.amazon.com/AWSJavaScriptSDK/latest/index.html
 
 /**
@@ -176,13 +152,13 @@ class StorageBackend {
           } catch (err) {
             done(err);
           }
-          debug(`Received put request for ${that.id}: ${body.url}`);
+          debug(`${that.id} Received put request ${body.url}`);
           that.put.call(that, body.url).then(() => {
-            debug(`Put request Completed for ${that.id}: ${body.url}`);
+            debug(`${that.id} Completed put request ${body.url}`);
             done();
           }, err => {
-            debug('Error calling put in handler: ' + err.stack || err); 
-            done();
+            debug(`${that.id} Error calling put in handler ${err.stack || err}`); 
+            done(err);
           });
         } else {
           debug('Received an empty message, huh?');
@@ -281,7 +257,7 @@ class StorageBackend {
         // URL that has a Location: header because that's not part of the spec.
         // We can easily change this bit of code to make the choice of redirecting or
         // not based on the presence of the Location: header later if we choose.
-        debug('Follwed all redirects: ' + addresses.map(x => x.url).join(' --> '));
+        debug(`${this.id} Follwed all redirects: ${addresses.map(x => x.url).join(' --> ')}`);
         return {
           url: u,
           meta: result,
@@ -336,7 +312,7 @@ class StorageBackend {
     // don't trust the entire redirect chain?
     /* NEED TO MAKE SURE ALLOWEDPATTERNS WORKS */
 
-    debug(`Putting "${rawUrl}" into mirrored files`);
+    debug(`${this.id} put(${rawUrl})`);
 
     let backendAddress = this.backendAddress(rawUrl);
 
@@ -347,7 +323,7 @@ class StorageBackend {
     // operations better
     let m = meter();
     m.on('error', err => {
-      debug('error from stream-meter: %s', err.stack||err);
+      debug(this.id + ' error from stream-meter: %s', err.stack||err);
     });
 
     // Get a stream for the input URL as well as some metadata
@@ -356,10 +332,10 @@ class StorageBackend {
     // Set up the actual stream with the usage meter so that we can
     // pass that through to the 
     let readStream = readInfo.stream.pipe(m);
-    debug(`Created read stream for ${rawUrl}`);
+    debug(`${this.id} Created read stream for ${rawUrl}`);
 
     // Figure out the name
-    debug(`Backend Address: ${JSON.stringify(backendAddress)}`);
+    debug(`${this.id} Backend Address: ${JSON.stringify(backendAddress)}`);
 
     // We need the following pieces of information in the service-specific
     // implementations 
@@ -394,7 +370,7 @@ class StorageBackend {
       fileSize: m.bytes,
     }
 
-    debug(`Uploaded '${rawUrl}' ${m.bytes} bytes in ${duration/1000} seconds`);
+    debug(`${this.id} Uploaded '${rawUrl}' ${m.bytes} bytes in ${duration/1000} seconds`);
 
     // Now that the resource is in the cache, we want to make sure that we
     // reflect that in our memcached.  We do this by setting the status
@@ -422,20 +398,19 @@ class StorageBackend {
     let backendUrl = this.backendAddressToUrl(this.backendAddress(rawUrl));
 
     if (!cacheEntry) {
-      debug(`Cache entry not found for ${rawUrl}`);
+      debug(`${this.id} Cache entry not found for ${rawUrl}`);
       // FIRST CHECK IF THE THING EXISTS FOR REAL AND INSERT
       // IF IT DOES!
       let headers = await requestHead(backendUrl);
-      debug(headers.statusCode);
       if (headers.statusCode >= 200 && headers.statusCode < 300) {
-        debug(`Found ${rawUrl} in backend, caching values`);
+        debug(`${this.id} Found ${rawUrl} in backend, backfilling cache`);
         await this.storeAddress(rawUrl, 'present', this.backendAddress(rawUrl));
         return {
           status: 'present',
           url: backendUrl,
         }
       } else {
-        debug(`Did not find ${rawUrl} in backend, inserting`);
+        debug(`${this.id} Did not find ${rawUrl} in backend, inserting`);
         this.requestPut(rawUrl);
         return { 
           status: 'pending',
@@ -460,7 +435,7 @@ class StorageBackend {
         url: backendUrl,
       };
     } else if (cacheEntry.status === 'present') {
-      debug(`Cache entry found for ${rawUrl} found`);
+      debug(`${this.id} Cache entry found for ${rawUrl} found`);
       return {
         status: 'present',
         url: backendUrl,
@@ -478,7 +453,7 @@ class StorageBackend {
     this._expire(backendAddress);
     // Here's where we'd delete from database and 
     let key = encodeURL(rawUrl);
-    debug(`MEMCACHE DEL: %{key}`);
+    debug(`${this.id} MEMCACHE DEL: %{key}`);
     await this.memcached.del(key);
   }
 
@@ -496,7 +471,7 @@ class StorageBackend {
     let obj = request.get(urlInfo.url);
 
     obj.on('error', err => {
-      debug(err.stack || err);
+      debug(this.id + ' error on request.get() read stream ' +err.stack || err);
       throw err;
     });
 
@@ -550,7 +525,7 @@ class StorageBackend {
 
     let key = encodeURL(rawUrl); 
     let jsonVersion = JSON.stringify(memcachedEntry);
-    debug(`MEMCACHE SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
+    debug(`${this.id} MEMCACHE SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
     await this.memcached.set(key, jsonVersion, this.urlTTL);
   }
 
@@ -564,7 +539,7 @@ class StorageBackend {
     assert(rawUrl);
     let key = encodeURL(rawUrl);
     let jsonVersion = await this.memcached.get(key);
-    debug(`MEMCACHE GET: ${key}, ${jsonVersion}`);
+    debug(`${this.id} MEMCACHE GET: ${key}, ${jsonVersion}`);
     return jsonVersion ? JSON.parse(jsonVersion) : undefined;
   }
 

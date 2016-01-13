@@ -119,50 +119,41 @@ let load = base.loader({
     requires: ['cfg', 'sqs', 'memcached', 'profile'], 
     setup: async ({cfg, sqs, memcached, profile}) => {
       // This should probably not all be here...
+      let s3objs = {};
+      let s3buckets = {};
       let s3backends = {};
       let regions = cfg.backend.s3.regions.split(',');
 
-      for (let region of regions) {
+      // First, let's asynchronusly create the buckets we need
+      await Promise.all(regions.map(region => {
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
         let s3 = new aws.S3(awsCfg);
+        s3objs[region] = s3;
         let bucket = cfg.backend.s3.bucketBase + cfg.server.env;
-        bucket +=  '-' + region;
-        if (!s3Backend.validateS3BucketName(bucket, true)) {
-          throw new Error('Cannot create S3 bucket with invalid name: ' + bucket);
-        }
-        try {
-          // us-east-1 is a special snowflake
-          let params = {
-            Bucket: bucket,
-            ACL: cfg.backend.s3.acl,
-          };
-          if (region !== 'us-east-1') {
-            params.CreateBucketConfiguration = {
-              LocationConstraint: region,
-            };
-          }
-          let response = await s3.createBucket(params).promise();
-          debug(`Created bucket ${bucket} in S3 ${region}`);
-        } catch (err) {
-          if (err.code !== 'BucketAlreadyExists' &&
-              err.code !== 'BucketAlreadyOwnedByYou') {
-          throw err;
-          }
-          debug('S3 Bucket already exists');
-        }
+        bucket += '-' + region;
+        s3buckets[region] = bucket;
+        return s3Backend.createS3Bucket(s3, bucket, region, 
+                                       cfg.backend.s3.acl,
+                                       cfg.backend.s3.lifespan);
+      }));
+
+      // Now, let's instantiate the backends we need!
+      for (let region of regions) {
         let backend = new s3Backend.S3Backend({
           region: region,
-          bucket: bucket,
+          bucket: s3buckets[region],
           urlTTL: cfg.backend.memcachedTTL,
           sqs: sqs,
-          s3: s3,
+          s3: s3objs[region],
           memcached: memcached,
           redirectLimit: cfg.app.redirectLimit,
           ensureSSL: cfg.app.ensureSSL,
           allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
         });
+
         await backend.init();
+
         s3backends[region] = backend;
       }
       return s3backends;
