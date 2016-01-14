@@ -7,6 +7,7 @@ let url = require('url');
 let assert = require('assert');
 let debug = require('debug')('cloud-mirror:s3backend');
 let stream = require('stream');
+let cookie = require('cookie');
 
 /**
  * We use this to wrap the upload object returned by s3.upload so that we get a
@@ -43,7 +44,7 @@ class S3Backend extends StorageBackend {
   constructor(config) {
     assert(config.region, 'must specify aws s3 region');
     let superConfig = {
-      urlTTL: config.urlTTL,
+      memcachedTTL: config.memcachedTTL,
       sqs: config.sqs,
       memcached: config.memcached,
       allowedPatterns: config.allowedPatterns,
@@ -64,14 +65,34 @@ class S3Backend extends StorageBackend {
 
   /**
    * Delete from S3
-   */
-  async _expire(backendAddress) {
+     */
+    async _expire(backendAddress) {
     debug(`${this.id} Deleting ${backendAddress.bucket}:${backendAddress.key}`);
     await this.s3.deleteObject({
       Bucket: backendAddress.bucket,
       Key: backendAddress.key,
     }).promise();
     debug(`${this.id} Deleted ${backendAddress.bucket}:${backendAddress.key}`);
+  }
+
+  /**
+   * Retreive the expiration time of object in S3
+   *
+   * This is stored in the format:
+   * expiry-date="Fri, 15 Jan 2016 00:00:00 GMT", rule-id="eu-central-1-1-day"
+   */
+  async _expirationDate(headers) {
+    let header = headers.caseless.get('x-amz-expiration');
+    // This header is sent in such a silly format.  Using cookie format or
+    // sending the value without packing it in with a second value (rule-id)
+    // would be way nicer.
+    // The requirements for this to stop being valid are so obscure that I
+    // would wager that the whole format of the header changes and this entire
+    // function would need to be rewritten as oppsed to the string replacement
+    // You'd need to have inside the expiry-date value or key an escaped quote
+    // that's followed by a comma...
+    header = cookie.parse(header.replace('",', '";'));
+    return new Date(header['expiry-date']);
   }
 
   /**

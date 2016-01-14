@@ -80,7 +80,7 @@ let requestHead = async (u) => {
  *  and have the same billing impact they share an id
  *  - allowedPatterns: each URL passed into the put() method to insert into our
  *  cache must match at least one of these regular expressions
- *  - urlTTL: the amount of time that a cache entry is put into memcached for
+ *  - memcachedTTL: the amount of time that a cache entry is put into memcached for
  *  - memcached: a reference to the memcached object we will use to cache our
  *  backend addresses
  *  - sqs: a reference to an sqs object which will be used to listen for
@@ -104,8 +104,8 @@ class StorageBackend {
     this.allowedPatterns = this.config.allowedPatterns;
 
     // This is the number of seconds that we should keep the url in cache
-    assert(this.config.urlTTL, 'Must specify how long to keep urls in cache');
-    this.urlTTL = this.config.urlTTL;
+    assert(this.config.memcachedTTL, 'Must specify how long to keep urls in cache');
+    this.memcachedTTL = this.config.memcachedTTL;
     
     // A configured Memcached object which will be used to store the cache locations
     assert(this.config.memcached, 'Must provide a memcached object');
@@ -316,7 +316,7 @@ class StorageBackend {
 
     let backendAddress = this.backendAddress(rawUrl);
 
-    await this.storeAddress(rawUrl, 'pending', backendAddress);
+    await this.storeAddress(rawUrl, 'pending', this.memcachedTTL, backendAddress);
 
     // The meter is a passthrough stream which lets me count the number of
     // bytes that go through it.  This lets us collect metrics on the copying
@@ -357,7 +357,7 @@ class StorageBackend {
                       readInfo.addresses,
                       upstreamEtag);
     } catch (err) {
-      await this.storeAddress(rawUrl, 'error', {}, err.stack || err);
+      await this.storeAddress(rawUrl, 'error', this.memcachedTTL, {}, err.stack || err);
       return;
     }
 
@@ -375,7 +375,7 @@ class StorageBackend {
     // Now that the resource is in the cache, we want to make sure that we
     // reflect that in our memcached.  We do this by setting the status
     // property of the memcache value to be present.
-    await this.storeAddress(rawUrl, 'present', backendAddress);
+    await this.storeAddress(rawUrl, 'present', this.memcachedTTL, backendAddress);
   }
 
   /**
@@ -404,7 +404,16 @@ class StorageBackend {
       let headers = await requestHead(backendUrl);
       if (headers.statusCode >= 200 && headers.statusCode < 300) {
         debug(`${this.id} Found ${rawUrl} in backend, backfilling cache`);
-        await this.storeAddress(rawUrl, 'present', this.backendAddress(rawUrl));
+        // We want to make sure that the TTL of the memcached entry is 30m less
+        // than when the object expires
+        let expires = await this.expirationDate(headers);
+        // Find the real value
+        let setTTL = expires - new Date();
+        // Now make it a little smaller so we expire from cache before s3
+        setTTL -= 30 * 60 * 1000;
+        // Now make it seconds
+        setTTL /= 1000;
+        await this.storeAddress(rawUrl, 'present', Math.floor(setTTL), this.backendAddress(rawUrl));
         return {
           status: 'present',
           url: backendUrl,
@@ -500,9 +509,10 @@ class StorageBackend {
    * of information about the problem.  The rawUrl parameter must be a non-URL encoded
    * value, all URL encoding will be done inside this method
    */
-  async storeAddress(rawUrl, status, backendAddress, stack) {
+  async storeAddress(rawUrl, status, ttl, backendAddress, stack) {
     assert(rawUrl);
     assert(status);
+    assert(typeof ttl === 'number');
     // rewrite this as a switch
     if (status !== 'present' && status !== 'pending' && status !== 'error') {
       throw new Error('status must be present, pending or error, not ' + status);
@@ -525,8 +535,8 @@ class StorageBackend {
 
     let key = encodeURL(rawUrl); 
     let jsonVersion = JSON.stringify(memcachedEntry);
-    debug(`${this.id} MEMCACHED SET: ${key}, ${jsonVersion}, ${this.urlTTL}`);
-    await this.memcached.set(key, jsonVersion, this.urlTTL);
+    debug(`${this.id} MEMCACHED SET: ${key}, ${jsonVersion}, ${ttl}`);
+    await this.memcached.set(key, jsonVersion, ttl);
   }
 
   /**
@@ -573,6 +583,20 @@ class StorageBackend {
     let key = encodeURL(rawUrl);
     assert(key.length <= 1024, 'key must be 1024 or fewer unicode characters');
     return encodeURL(key);
+  }
+
+  /**
+   * Determine when the file in the backend expires
+   */
+  async expirationDate(headers) {
+    return this._expirationDate(headers);
+  }
+
+  /**
+   * Retreive the expiration time of object in S3
+   */
+  async _expirationDate(headers) {
+    throw new Error('Putting not yet implemented');
   }
 
   /**
@@ -623,4 +647,5 @@ module.exports = {
   StorageBackend,
   encodeURL,
   decodeURL,
+  requestHead,
 }

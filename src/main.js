@@ -143,7 +143,7 @@ let load = base.loader({
         let backend = new s3Backend.S3Backend({
           region: region,
           bucket: s3buckets[region],
-          urlTTL: cfg.backend.memcachedTTL,
+          memcachedTTL: cfg.backend.memcachedTTL,
           sqs: sqs,
           s3: s3objs[region],
           memcached: memcached,
