@@ -445,6 +445,10 @@ class StorageBackend {
       };
     } else if (cacheEntry.status === 'present') {
       debug(`${this.id} Cache entry found for ${rawUrl} found`);
+      // The assumption here is that if an item is in memcached that it's
+      // in the backend.  We'd have to hit the backend url with a HEAD
+      // to check for sure, which is extra overhead.  Let's see how often
+      // we hit this.
       return {
         status: 'present',
         url: backendUrl,
