@@ -7,9 +7,14 @@ let path = require('path');
 let _ = require('lodash');
 let assert = require('assert');
 let taskcluster = require('taskcluster-client');
-let Memcached = require('memcache-promise');
+
 let aws = require('aws-sdk-promise');
 let s3Backend = require('./s3-backend');
+
+let bluebird = require('bluebird');
+let redis = require('redis');
+bluebird.promisifyAll(redis.RedisClient.prototype);
+bluebird.promisifyAll(redis.Multi.prototype);
 
 //let exchanges = require('./exchanges');
 let v1 = require('./api-v1');
@@ -21,11 +26,11 @@ let load = base.loader({
     setup: ({profile}) => config({profile}),
   },
 
-  memcached: {
+  redis: {
     requires: ['cfg'],
     setup: ({cfg}) => {
-      assert(cfg.memcached.servers, 'Must specify memcached servers');
-      return new Memcached(cfg.memcached.servers);
+      assert(cfg.redis, 'Must specify redis server');
+      return redis.createClient(cfg.redis);
     },
   },
 
@@ -85,13 +90,13 @@ let load = base.loader({
 
   api: {
     requires: [
-      'cfg', /*'publisher',*/ 'validator', 'influx', 'memcached', 's3backends',
+      'cfg', /*'publisher',*/ 'validator', 'influx', 'redis', 's3backends',
     ],
     setup: (ctx) => v1.setup({
       context: {
         //publisher: ctx.publisher,
         validator: ctx.validator,
-        memcached: ctx.memcached,
+        redis: ctx.redis,
         s3backends: ctx.s3backends,
       },
       validator: ctx.validator,
@@ -116,8 +121,8 @@ let load = base.loader({
   },
 
   s3backends: {
-    requires: ['cfg', 'sqs', 'memcached', 'profile'], 
-    setup: async ({cfg, sqs, memcached, profile}) => {
+    requires: ['cfg', 'sqs', 'redis', 'profile'], 
+    setup: async ({cfg, sqs, redis, profile}) => {
       // This should probably not all be here...
       let s3objs = {};
       let s3buckets = {};
@@ -143,10 +148,10 @@ let load = base.loader({
         let backend = new s3Backend.S3Backend({
           region: region,
           bucket: s3buckets[region],
-          memcachedTTL: cfg.backend.memcachedTTL,
+          cacheTTL: cfg.backend.cacheTTL,
           sqs: sqs,
           s3: s3objs[region],
-          memcached: memcached,
+          redis: redis,
           redirectLimit: cfg.app.redirectLimit,
           ensureSSL: cfg.app.ensureSSL,
           allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),

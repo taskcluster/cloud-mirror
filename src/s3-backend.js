@@ -44,9 +44,9 @@ class S3Backend extends StorageBackend {
   constructor(config) {
     assert(config.region, 'must specify aws s3 region');
     let superConfig = {
-      memcachedTTL: config.memcachedTTL,
+      cacheTTL: config.cacheTTL,
       sqs: config.sqs,
-      memcached: config.memcached,
+      redis: config.redis,
       allowedPatterns: config.allowedPatterns,
       id: 'S3_' + config.region,
     };

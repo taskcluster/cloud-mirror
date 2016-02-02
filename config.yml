@@ -30,12 +30,7 @@ defaults:
       acl: 'public-read'
       bucketBase: 'cloud-mirror-'
       lifespan: 1 # in days, how long should S3 keep this
-    memcachedTTL: 84600 # 23.5 hours
-
-  # Azure credentials (for table, blob and queue storage)
-  azure:
-    accountName: !env AZURE_ACCOUNT_NAME
-    accountKey: !env AZURE_ACCOUNT_KEY
+    cacheTTL: 84600 # 23.5 hours
 
   pulse:
     username: !env PULSE_USERNAME
@@ -46,8 +41,9 @@ defaults:
     maxDelay: 300
     maxPendingPoints: 300
 
-  memcached:
-    servers: 'localhost:11211'
+  redis:
+    host: !env REDIS_HOST
+    password: !env REDIS_PASS
 
   sqs:
     accessKeyId: !env AWS_ACCESS_KEY_ID
@@ -76,6 +72,8 @@ production:
     trustProxy: true
 
 development:
+  redis:
+    host: 127.0.0.1
   server:
     port: 5555
     env: development

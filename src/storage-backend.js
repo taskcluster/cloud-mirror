@@ -15,8 +15,6 @@ let stream = require('stream');
 let meter = require('stream-meter');
 let SQSConsumer = require('sqs-consumer');
 
-
-
 /**
  * Obtain a header from a URL.  Do not follow redirects.  Returns the headers,
  * a caseless to look up header names without worrying about case, the HTTP
@@ -80,8 +78,8 @@ let requestHead = async (u) => {
  *  and have the same billing impact they share an id
  *  - allowedPatterns: each URL passed into the put() method to insert into our
  *  cache must match at least one of these regular expressions
- *  - memcachedTTL: the amount of time that a cache entry is put into memcached for
- *  - memcached: a reference to the memcached object we will use to cache our
+ *  - cacheTTL: the amount of time that a cache entry is put into redis for
+ *  - redis: a reference to the redis object we will use to cache our
  *  backend addresses
  *  - sqs: a reference to an sqs object which will be used to listen for
  *  incoming copy requests as well as to send out completion messages
@@ -104,12 +102,12 @@ class StorageBackend {
     this.allowedPatterns = this.config.allowedPatterns;
 
     // This is the number of seconds that we should keep the url in cache
-    assert(this.config.memcachedTTL, 'Must specify how long to keep urls in cache');
-    this.memcachedTTL = this.config.memcachedTTL;
+    assert(this.config.cacheTTL, 'Must specify how long to keep urls in cache');
+    this.cacheTTL = this.config.cacheTTL;
     
-    // A configured Memcached object which will be used to store the cache locations
-    assert(this.config.memcached, 'Must provide a memcached object');
-    this.memcached = this.config.memcached;
+    // A configured redis object which will be used to store the cache locations
+    assert(this.config.redis, 'Must provide a redis object');
+    this.redis = this.config.redis;
 
     // SQS Instance to use for communications
     assert(this.config.sqs, 'Must provide an SQS object');
@@ -316,7 +314,7 @@ class StorageBackend {
 
     let backendAddress = this.backendAddress(rawUrl);
 
-    await this.storeAddress(rawUrl, 'pending', this.memcachedTTL, backendAddress);
+    await this.storeAddress(rawUrl, 'pending', this.cacheTTL, backendAddress);
 
     // The meter is a passthrough stream which lets me count the number of
     // bytes that go through it.  This lets us collect metrics on the copying
@@ -357,7 +355,7 @@ class StorageBackend {
                       readInfo.addresses,
                       upstreamEtag);
     } catch (err) {
-      await this.storeAddress(rawUrl, 'error', this.memcachedTTL, {}, err.stack || err);
+      await this.storeAddress(rawUrl, 'error', this.cacheTTL, {}, err.stack || err);
       return;
     }
 
@@ -373,9 +371,9 @@ class StorageBackend {
     debug(`${this.id} Uploaded '${rawUrl}' ${m.bytes} bytes in ${duration/1000} seconds`);
 
     // Now that the resource is in the cache, we want to make sure that we
-    // reflect that in our memcached.  We do this by setting the status
-    // property of the memcache value to be present.
-    await this.storeAddress(rawUrl, 'present', this.memcachedTTL, backendAddress);
+    // reflect that in our redis.  We do this by setting the status
+    // property of the redis value to be present.
+    await this.storeAddress(rawUrl, 'present', this.cacheTTL, backendAddress);
   }
 
   /**
@@ -387,7 +385,7 @@ class StorageBackend {
    * cache entry appropriate for it.
    *
    * TODO: This should read the age of the artifact in the backing store and
-   * set the TTL on the memcached entry appropriately.
+   * set the TTL on the redis entry appropriately.
    *
    * TODO: Before we return something as being present, we should verify that
    * it is actually present by fetching its headers on the server
@@ -404,7 +402,7 @@ class StorageBackend {
       let headers = await requestHead(backendUrl);
       if (headers.statusCode >= 200 && headers.statusCode < 300) {
         debug(`${this.id} Found ${rawUrl} in backend, backfilling cache`);
-        // We want to make sure that the TTL of the memcached entry is 30m less
+        // We want to make sure that the TTL of the redis entry is 30m less
         // than when the object expires
         let expires = await this.expirationDate(headers);
         // Find the real value
@@ -426,36 +424,36 @@ class StorageBackend {
           url: backendUrl,
         };
       }
-      
+    } else {
+      if (cacheEntry.status === 'error') {
+        // We want to retry error cases.
+        // Maybe we should log something into influx to count how often we're in
+        // this case?
+        this.requestPut(rawUrl);
+        return { 
+          status: 'error',
+          url: backendUrl,
+        };
+      } else if (cacheEntry.status === 'pending') {
+        return { 
+          status: 'pending',
+          url: backendUrl,
+        };
+      } else if (cacheEntry.status === 'present') {
+        debug(`${this.id} Cache entry found for ${rawUrl} found`);
+        // The assumption here is that if an item is in redis that it's
+        // in the backend.  We'd have to hit the backend url with a HEAD
+        // to check for sure, which is extra overhead.  Let's see how often
+        // we hit this.
+        return {
+          status: 'present',
+          url: backendUrl,
+        };
+      } else {
+        debug(cacheEntry);
+        throw new Error('Unsure how to handle this cacheEntry');
+      }
     }
-    
-    if (cacheEntry.status === 'error') {
-      // We want to retry error cases.
-      // Maybe we should log something into influx to count how often we're in
-      // this case?
-      this.requestPut(rawUrl);
-      return { 
-        status: 'error',
-        url: backendUrl,
-      };
-    } else if (cacheEntry.status === 'pending') {
-      return { 
-        status: 'pending',
-        url: backendUrl,
-      };
-    } else if (cacheEntry.status === 'present') {
-      debug(`${this.id} Cache entry found for ${rawUrl} found`);
-      // The assumption here is that if an item is in memcached that it's
-      // in the backend.  We'd have to hit the backend url with a HEAD
-      // to check for sure, which is extra overhead.  Let's see how often
-      // we hit this.
-      return {
-        status: 'present',
-        url: backendUrl,
-      };
-    }
-
-    return returnValue;
   }
 
   /**
@@ -466,8 +464,7 @@ class StorageBackend {
     this._expire(backendAddress);
     // Here's where we'd delete from database and 
     let key = encodeURL(rawUrl);
-    debug(`${this.id} MEMCACHED DEL: ${key}`);
-    await this.memcached.del(key);
+    await this.redis.delAsync(key);
   }
 
 
@@ -503,7 +500,7 @@ class StorageBackend {
   }
 
   /**
-   * Insert information about a given resource into the memcached instance.
+   * Insert information about a given resource into the redis instance.
    * We use this so that all setting of the relevant key uses the same structure.
    * The allowed statuses are 'present', 'pending', 'error'.  Present means that the
    * file is expected to be in the backing service.  Pending means that the file is
@@ -517,6 +514,7 @@ class StorageBackend {
     assert(rawUrl);
     assert(status);
     assert(typeof ttl === 'number');
+
     // rewrite this as a switch
     if (status !== 'present' && status !== 'pending' && status !== 'error') {
       throw new Error('status must be present, pending or error, not ' + status);
@@ -524,7 +522,7 @@ class StorageBackend {
 
     assert(backendAddress);
 
-    let memcachedEntry = {
+    let cacheEntry = {
       originalUrl: rawUrl,
       status: status,
       backendAddress: backendAddress,
@@ -532,29 +530,25 @@ class StorageBackend {
 
     if (status === 'error') {
       assert(stack);
-      memcachedEntry.stack = stack;
+      cacheEntry.stack = stack;
     } else {
       assert(!stack);
     }
 
     let key = encodeURL(rawUrl); 
-    let jsonVersion = JSON.stringify(memcachedEntry);
-    debug(`${this.id} MEMCACHED SET: ${key}, ${jsonVersion}, ${ttl}`);
-    await this.memcached.set(key, jsonVersion, ttl);
+    let result = await this.redis.multi().hmset(key, cacheEntry).expire(key, ttl).execAsync();
   }
 
   /**
-   * Read memcached entry from the backing instance.  The rawUrl parameter
+   * Read redis entry from the backing instance.  The rawUrl parameter
    * should not be URL Encoded, since this method will do that itself.  In the
-   * case that the memcached instance does not have an object at that key, the
+   * case that the redis instance does not have an object at that key, the
    * value 'undefined' will be returned.
    */
   async readAddressFromCache(rawUrl) {
     assert(rawUrl);
     let key = encodeURL(rawUrl);
-    let jsonVersion = await this.memcached.get(key);
-    debug(`${this.id} MEMCACHED GET: ${key}, ${jsonVersion}`);
-    return jsonVersion ? JSON.parse(jsonVersion) : undefined;
+    return await this.redis.hgetallAsync(key);
   }
 
   /**
