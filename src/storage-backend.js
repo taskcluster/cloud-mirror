@@ -525,7 +525,7 @@ class StorageBackend {
     let cacheEntry = {
       originalUrl: rawUrl,
       status: status,
-      backendAddress: backendAddress,
+      backendAddress: JSON.stringify(backendAddress),
     }
 
     if (status === 'error') {
@@ -548,7 +548,11 @@ class StorageBackend {
   async readAddressFromCache(rawUrl) {
     assert(rawUrl);
     let key = encodeURL(rawUrl);
-    return await this.redis.hgetallAsync(key);
+    let result = await this.redis.hgetallAsync(key);
+    if (result) {
+      result.backendAddress = JSON.parse(result.backendAddress);
+    }
+    return result;
   }
 
   /**

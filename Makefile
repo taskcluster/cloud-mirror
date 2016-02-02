@@ -10,7 +10,7 @@ build:
 
 .PHONY: build-docker-image
 build-docker-image:
-	docker build -t cloud-mirror:$(TAG) .
+	docker build --no-cache -t cloud-mirror:$(TAG) .
 
 .PHONY: push-docker-image
 push-docker-image: build-docker-image
