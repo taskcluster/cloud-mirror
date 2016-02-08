@@ -6,7 +6,7 @@ defaults:
     # Component property in the responseTime and process statistics
     statsComponent:               cloud-mirror
 
-    ensureSSL: true
+    ensureSSL: false
     redirectLimit: 20
     allowedPatterns:
       - '^https://www.mozilla.org/'
@@ -72,6 +72,8 @@ production:
     trustProxy: true
 
 development:
+  app:
+    ensureSSL: false
   redis:
     host: 127.0.0.1
   server:

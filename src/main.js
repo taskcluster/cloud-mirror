@@ -30,6 +30,7 @@ let load = base.loader({
     requires: ['cfg'],
     setup: ({cfg}) => {
       assert(cfg.redis, 'Must specify redis server');
+      debug('Redis config: %j', cfg.redis);
       return redis.createClient(cfg.redis);
     },
   },

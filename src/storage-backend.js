@@ -139,6 +139,7 @@ class StorageBackend {
     let that = this;
 
     this.copyRequestQueue = data.data.QueueUrl;
+    debug('Put request Queue: ' + this.copyRequestQueue);
     this.consumer = SQSConsumer.create({
       queueUrl: this.copyRequestQueue,
       batchSize: 10,
@@ -284,6 +285,7 @@ class StorageBackend {
    * Listen to the Copy Request Queue
    */
   async startListeningToRequestQueue() {
+    debug('Listening for put requests');
     this.consumer.start();
   }
 
@@ -291,6 +293,7 @@ class StorageBackend {
    * Stop listening to the Copy Request Queue
    */
   async stopListeningToRequestQueue() {
+    debug('No longer listening for put requests');
     this.consumer.stop();
   }
 
