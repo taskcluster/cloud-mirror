@@ -8,7 +8,7 @@ let http = require('http');
 // have a guaruntee that all redirects are secure.  This is a critical part of
 // our system, so we've implemented our own secure redirector
 let request = require('request').defaults({
-  followRedirect: false, 
+  followRedirect: false,
 });
 let fs = require('fs');
 let stream = require('stream');
@@ -64,7 +64,7 @@ let requestHead = async (u) => {
  *
  * Documentation for what each of these base class methods must do is provided
  * in a comment block by the function itself.
- * 
+ *
  * NOTE: Any parameter called 'rawUrl' should be passed as a string
  * representing the actual URL and should *not* be URL encoded.  This means
  * pass that if you want to refer to the mozilla homepage, you'd pass in
@@ -104,7 +104,7 @@ class StorageBackend {
     // This is the number of seconds that we should keep the url in cache
     assert(this.config.cacheTTL, 'Must specify how long to keep urls in cache');
     this.cacheTTL = this.config.cacheTTL;
-    
+
     // A configured redis object which will be used to store the cache locations
     assert(this.config.redis, 'Must provide a redis object');
     this.redis = this.config.redis;
@@ -156,7 +156,7 @@ class StorageBackend {
             debug(`${that.id} Completed put request ${body.url}`);
             done();
           }, err => {
-            debug(`${that.id} Error calling put in handler ${err.stack || err}`); 
+            debug(`${that.id} Error calling put in handler ${err.stack || err}`);
             done(err);
           });
         } else {
@@ -171,8 +171,8 @@ class StorageBackend {
    * Follow redirects in a secure way, unless configured not to.  This function
    * will ensure that all redirects in a redirect chain are pointing to HTTPS
    * urls and not HTTP urls.  This is used to ensure that everything in the Cloud
-   * Mirror storage was obtained through with an HTTP chain of custody.  If the 
-   * config parameter 'allowInsecureRedirect' is a truthy value, HTTP urls and 
+   * Mirror storage was obtained through with an HTTP chain of custody.  If the
+   * config parameter 'allowInsecureRedirect' is a truthy value, HTTP urls and
    * redirections from HTTPS to HTTP resources will be allowed.
    *
    * TODO:
@@ -331,7 +331,7 @@ class StorageBackend {
     let readInfo = await this.createUrlReadStream(rawUrl);
 
     // Set up the actual stream with the usage meter so that we can
-    // pass that through to the 
+    // pass that through to the
     let readStream = readInfo.stream.pipe(m);
     debug(`${this.id} Created read stream for ${rawUrl}`);
 
@@ -339,7 +339,7 @@ class StorageBackend {
     debug(`${this.id} Backend Address: ${JSON.stringify(backendAddress)}`);
 
     // We need the following pieces of information in the service-specific
-    // implementations 
+    // implementations
     let contentType = readInfo.meta.headers[readInfo.meta.caseless.has('content-type')];
     contentType = contentType || 'application/octet-stream';
     let upstreamEtag = readInfo.meta.headers[readInfo.meta.caseless.has('etag')];
@@ -366,7 +366,7 @@ class StorageBackend {
     let duration = new Date() - startTime;
     let dataPoint = {
       id: this.id,
-      url: rawUrl, 
+      url: rawUrl,
       duration: duration,
       fileSize: m.bytes,
     }
@@ -422,7 +422,7 @@ class StorageBackend {
       } else {
         debug(`${this.id} Did not find ${rawUrl} in backend, inserting`);
         this.requestPut(rawUrl);
-        return { 
+        return {
           status: 'pending',
           url: backendUrl,
         };
@@ -433,12 +433,12 @@ class StorageBackend {
         // Maybe we should log something into influx to count how often we're in
         // this case?
         this.requestPut(rawUrl);
-        return { 
+        return {
           status: 'error',
           url: backendUrl,
         };
       } else if (cacheEntry.status === 'pending') {
-        return { 
+        return {
           status: 'pending',
           url: backendUrl,
         };
@@ -465,8 +465,8 @@ class StorageBackend {
   async expire(rawUrl) {
     let backendAddress = this.backendAddress(rawUrl);
     this._expire(backendAddress);
-    // Here's where we'd delete from database and 
-    let key = encodeURL(rawUrl);
+    // Here's where we'd delete from database and
+    let key = this.id + '_' + encodeURL(rawUrl);
     await this.redis.delAsync(key);
   }
 
@@ -538,7 +538,7 @@ class StorageBackend {
       assert(!stack);
     }
 
-    let key = encodeURL(rawUrl); 
+    let key = this.id + '_' + encodeURL(rawUrl);
     let result = await this.redis.multi().hmset(key, cacheEntry).expire(key, ttl).execAsync();
   }
 
@@ -550,7 +550,7 @@ class StorageBackend {
    */
   async readAddressFromCache(rawUrl) {
     assert(rawUrl);
-    let key = encodeURL(rawUrl);
+    let key = this.id + '_' + encodeURL(rawUrl);
     let result = await this.redis.hgetallAsync(key);
     if (result) {
       result.backendAddress = JSON.parse(result.backendAddress);
@@ -570,16 +570,17 @@ class StorageBackend {
         url: rawUrl,
       }),
     };
+    debug('Requesting a put of ' + rawUrl);
     await this.sqs.sendMessage(sqsParams).promise();
   }
 
-  /** 
+  /**
    * Create a name for a given storage backend.  Since we can have a reasonable
    * guess of an appropriate default action, we do have an implementation in
    * the base class.  This implementation assumes that you'll essentially have
    * a single parameter in a URL in order to resolve it in the backing storage.
    * This is not the case in S3, as S3 does require a bucket name to be
-   * present.
+   * presentthis.id + '_' + .
    *
    * Overriding this is only needed if you require more than a single token
    * to determine where a file is in a given backing store
@@ -623,7 +624,7 @@ class StorageBackend {
     // We throw here because it's impossible to know how the implementing class
     // will map this backend address into a real url.  Simply decoding the URL
     // would mean that the cache isn't used and that's the only thing we know
-    // how to do with this data 
+    // how to do with this data
     throw new Error('Unimplemented');
   }
 
