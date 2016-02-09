@@ -65,8 +65,8 @@ class S3Backend extends StorageBackend {
 
   /**
    * Delete from S3
-     */
-    async _expire(backendAddress) {
+   */
+  async _expire(backendAddress) {
     debug(`${this.id} Deleting ${backendAddress.bucket}:${backendAddress.key}`);
     await this.s3.deleteObject({
       Bucket: backendAddress.bucket,
@@ -256,10 +256,12 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
   if (!validateS3BucketName(name, true)) {
     throw new Error(`Bucket ${name} is not valid`);
   }
+
   let params = {
     Bucket: name,
     ACL: acl,
   };
+
   if (region !== 'us-east-1') {
     params.CreateBucketConfiguration = {
       LocationConstraint: region,
@@ -299,8 +301,6 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
   debug(`Setting S3 lifecycle configuration for ${name} in ${region}`);
   await s3.putBucketLifecycleConfiguration(params).promise();
   debug(`Set S3 lifecycle configuration for ${name} in ${region}`);
-
-  
 }
 
 module.exports = {

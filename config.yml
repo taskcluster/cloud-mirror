@@ -74,6 +74,8 @@ production:
 development:
   app:
     ensureSSL: false
+    allowedPatterns:
+      - '.*'
   redis:
     host: 127.0.0.1
   server:

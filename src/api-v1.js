@@ -48,6 +48,11 @@ api.declare({
   let region = req.params.region;
   let service = req.params.service;
   let error = req.params.error;
+
+  // Because of how URLs work, its not possible to have a route description
+  // which captures the http:// as a single parameter.  Instead, we have a
+  // parameter after where the urlencoded url ought to be.  If this is any
+  // js-truthy value, we know that someone didn't pass in url-encoded url.
   if (error) {
     return res.status(400).json({
       msg: 'URL Must be URL encoded!',
@@ -63,8 +68,7 @@ api.declare({
       try {
         await backend.validateInputURL(url);
       } catch (err) {
-        debug(err);
-        debug(err.stack);
+        debug(err.stack || err);
         // Intentionally vague because we don't want to reveal
         // our configuration too much
         let msg = 'Input URL failed validation for unknown reason';
@@ -84,17 +88,21 @@ api.declare({
         });
       }
 
+      // TODO: make this configurable
       let maxWaitForCachedCopy = 90 * 1000;
 
       let startTime = new Date();
       let x = 0;
       while ((new Date() - startTime) < maxWaitForCachedCopy) {
         debug(`Check ${x++} of ${url}`);
+
         let result = await backend.getBackendUrl(url);
+
         if (result.status === 'present') {
           debug(`${logthingy} is present`);
           res.status(302);
           res.location(result.url);
+
           // Instead of just returning result object, we want to return only
           // known properties.  This is to avoid possible leakage
           let datapoint = {
@@ -124,6 +132,7 @@ api.declare({
         service: service,
         region: region,
       }
+
       return res.json({
         url: url,
         msg: `Cached copy did not show up in ${maxWaitForCachedCopy/1000}s`,
@@ -131,13 +140,13 @@ api.declare({
     } else {
       debug(`Region not configured for ${logthingy}`);
       return res.status(400).json({
-        msg: `Region '${region}' is not configured for ${service}`,
+        msg: `Region ${region} is not configured for ${service}`,
       });
     }
   } else {
-      debug(`Service not known for ${logthingy}`);
+    debug(`Service not known for ${logthingy}`);
     return res.status(400).json({
-      msg: `Service '${service}' is not known`,
+      msg: `Service ${service} is not known`,
     });
   }
 });
@@ -151,7 +160,7 @@ api.declare({
   // generated API-References.  A value of '', e.g "/redirect/s/r/u/" would be
   // fine, it just has to evaluate as falsy
   route: '/purge/:service/:region/:url/:error?',
-  name: 'purge', 
+  name: 'purge',
   //deferAuth: false,
   //scopes: [],
   title: "Purge resource from backing cache", 
@@ -171,6 +180,8 @@ api.declare({
   let region = req.params.region;
   let service = req.params.service;
   let error = req.params.error;
+
+  // See comment in the redirect message to explain this parameter
   if (error) {
     return res.status(400).json({
       msg: 'URL Must be URL encoded!',
@@ -193,53 +204,13 @@ api.declare({
     } else {
       debug(`Region not configured for ${logthingy}`);
       return res.status(400).json({
-        msg: `Region '${region}' is not configured for ${service}`,
+        msg: `Region ${region} is not configured for ${service}`,
       });
     }
   } else {
-      debug(`Service not known for ${logthingy}`);
+    debug(`Service not known for ${logthingy}`);
     return res.status(400).json({
-      msg: `Service '${service}' is not known`,
-    });
-  }
-});
-
-api.declare({
-  method: 'delete',
-  route: '/expire/:service/:region/:url/:error?',
-  name: 'expire',
-  title: 'Expire resource',
-  description: [
-    'Documented later...',
-  ].join('\n'),
-}, async function (req, res) {
-  let url = req.params.url;
-  let region = req.params.region;
-  let service = req.params.service;
-  let error = req.params.error;
-  if (error) {
-    return res.status(400).json({
-      msg: 'URL Must be URL encoded!',
-    });
-  }
-  let logthingy = `${url} in ${service}/${region}`;
-  debug(`Attempting to expire ${logthingy}`);
-
-  if (service.toLowerCase() === 's3') {
-    if (this.s3backends[region]) {
-      let backend = this.s3backends[region];
-      let result = await backend.expire(url);
-      return res.status(204).send();
-    } else {
-      debug(`Region not configured for ${logthingy}`);
-      return res.status(400).json({
-        msg: `Region '${region}' is not configured for ${service}`,
-      });
-    }
-  } else {
-      debug(`Service not known for ${logthingy}`);
-    return res.status(400).json({
-      msg: `Service '${service}' is not known`,
+      msg: `Service ${service} is not known`,
     });
   }
 });
