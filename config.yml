@@ -8,6 +8,7 @@ defaults:
 
     ensureSSL: false
     redirectLimit: 20
+    maxWaitForCachedCopy: 90000 #ms
     allowedPatterns:
       - '^https://www.mozilla.org/'
 
@@ -71,6 +72,23 @@ production:
     forceSSL: true
     trustProxy: true
 
+test:
+  app:
+    ensureSSL: false
+    maxWaitForCachedCopy: 5000 #ms
+    allowedPatterns:
+      - '.*'
+  backend:
+    s3:
+      regions: 'us-west-1'
+    cacheTTL: 20000
+  redis:
+    host: 127.0.0.1
+  server:
+    port: 5556
+    env: development
+    publicUrl: http://localhost:5556
+
 development:
   app:
     ensureSSL: false
@@ -81,3 +99,4 @@ development:
   server:
     port: 5555
     env: development
+    publicUrl: http://localhost:5555

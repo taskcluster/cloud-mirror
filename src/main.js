@@ -99,6 +99,7 @@ let load = base.loader({
         validator: ctx.validator,
         redis: ctx.redis,
         s3backends: ctx.s3backends,
+        maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
       },
       validator: ctx.validator,
       authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,

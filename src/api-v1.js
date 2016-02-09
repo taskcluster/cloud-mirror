@@ -89,7 +89,7 @@ api.declare({
       }
 
       // TODO: make this configurable
-      let maxWaitForCachedCopy = 90 * 1000;
+      let maxWaitForCachedCopy = this.maxWaitForCachedCopy;
 
       let startTime = new Date();
       let x = 0;
