@@ -2,7 +2,6 @@ let storageBackend = require('./storage-backend.js');
 let encodeURL = storageBackend.encodeURL;
 let decodeURL = storageBackend.decodeURL;
 let StorageBackend = storageBackend.StorageBackend;
-let contentDisposition = require('content-disposition');
 let url = require('url');
 let assert = require('assert');
 let debug = require('debug')('cloud-mirror:s3backend');
@@ -99,21 +98,13 @@ class S3Backend extends StorageBackend {
    * Upload a file to S3 using the aws-sdk upload method.  This method does multi-part
    * uploading and automatic cleanup of failed attemptes.
    */
-  async _putUsingS3Upload(inStream, name, rawUrl, contentType, redirects, upstreamEtag) {
+  async _putUsingS3Upload(name, inStream, rawUrl, headers, backendMetadata, redirects) {
     assert(inStream);
     assert(name);
     assert(rawUrl);
-    assert(contentType);
+    assert(headers);
+    assert(backendMetadata);
     assert(redirects);
-    let metadata = {
-      url: rawUrl,
-      stored: new Date().toISOString(),
-    };
-
-    // We want to show the upstream's ETag to make debugging easier
-    if (upstreamEtag) {
-      metadata['upstream-etag'] = upstreamEtag;
-    }
 
     // We want to expose the set of redirects that occured when putting this
     // item into the cache.  We only want this when explicitly requested because
@@ -129,11 +120,38 @@ class S3Backend extends StorageBackend {
       Bucket: this.bucket,
       Key: decodeURL(name.key),
       Body: inStream,
-      ContentType: contentType,
-      ContentDisposition: contentDisposition(name.filename),
+      //ContentType: contentType,
+      //ContentDisposition: contentDisposition(name.filename),
       ACL: 'public-read',
-      Metadata: metadata,
+      Metadata: backendMetadata,
     };
+    assert(headers['Content-Type']);
+    request.ContentType = headers['Content-Type'];
+
+    if (headers['Content-Disposition']) {
+      request.ContentMD5 = headers['Content-Disposition'];
+    }
+
+    if (headers['Content-MD5']) {
+      request.ContentMD5 = headers['Content-MD5'];
+    }
+
+    if (headers['Content-Encoding']) {
+      request.ContentEncoding = headers['Content-Encoding'];
+    }
+
+    // For the time being, we don't support Cache-Control.  Once
+    // we do, we should consider setting the TTL in the cache and 
+    // S3 appropriately
+    /*if (headers['Cache-Control']) {
+      request.CacheControl = headers['Cache-Control'];
+    }
+    if (headers['Expires']) {
+      request.Expires = headers['Expires'];
+    }*/
+    assert(!headers['Cache-Control']);
+    assert(!headers['Expires']);
+    
     let options = {
       partSize: 32 * 1024 * 1024,
       queueSize: 4,
@@ -151,14 +169,15 @@ class S3Backend extends StorageBackend {
   /**
    * Implementation of the base class
    */
-  async _put(name, inStream, rawUrl, contentType, redirects, upstreamEtag) {
+  async _put(name, inStream, rawUrl, headers, backendMetadata, redirects, upstreamEtag) {
     assert(name, 'missing name for _put');
     assert(inStream, 'missing inStream for _put');
     assert(rawUrl);
-    assert(contentType);
+    assert(headers);
+    assert(backendMetadata);
     assert(redirects);
     assert(inStream instanceof stream.Readable, 'inStream must be stream');
-    return await this.uploadMethod(inStream, name, rawUrl, contentType, redirects, upstreamEtag);
+    return await this.uploadMethod(name, inStream, rawUrl, headers, backendMetadata, redirects, upstreamEtag);
   }
 
   /**

@@ -338,12 +338,29 @@ class StorageBackend {
     // Figure out the name
     debug(`${this.id} Backend Address: ${JSON.stringify(backendAddress)}`);
 
+
     // We need the following pieces of information in the service-specific
     // implementations
     let contentType = readInfo.meta.headers[readInfo.meta.caseless.has('content-type')];
     contentType = contentType || 'application/octet-stream';
     let upstreamEtag = readInfo.meta.headers[readInfo.meta.caseless.has('etag')];
     upstreamEtag = upstreamEtag || '';
+    let contentEncoding = readInfo.meta.headers[readInfo.meta.caseless.has('content-encoding')];
+    let contentDisposition = readInfo.meta.headers[readInfo.meta.caseless.has('content-disposition')];
+
+
+    // Figure out the HTTP Headers to send to the uploading backend
+    let headers = {
+      'Content-Type': contentType,
+      'Content-Disposition': contentDisposition,
+      'Content-Encoding': contentEncoding,
+    };
+
+    let backendMetadata = {
+      'upstream-etag': upstreamEtag,
+      url: rawUrl,
+      stored: new Date().toISOString(),
+    };
 
     // We want metrics on how long it is taking us to transfer files.  This is
     // done here instead of in the implementation of this class because we want
@@ -354,9 +371,9 @@ class StorageBackend {
       await this._put(backendAddress,
                       readStream,
                       readInfo.url,
-                      contentType,
-                      readInfo.addresses,
-                      upstreamEtag);
+                      headers,
+                      backendMetadata,
+                      readInfo.addresses);
     } catch (err) {
       await this.storeAddress(rawUrl, 'error', this.cacheTTL, {}, err.stack || err);
       return;
@@ -481,7 +498,12 @@ class StorageBackend {
     // Determine the true address of the resource
     let urlInfo = await this.validateInputURL(rawUrl);
 
-    let obj = request.get(urlInfo.url);
+    let obj = request.get({
+      url: urlInfo.url,
+      headers: {
+        'Accept-Encoding': '*',
+      }
+    });
 
     obj.on('error', err => {
       debug(this.id + ' error on request.get() read stream ' +err.stack || err);
@@ -615,7 +637,7 @@ class StorageBackend {
    * information that can be used to identify the copy of this resource that it
    * contains.
    */
-  async _put(name, inStream, rawUrl, contentType, redirects, upstreamEtag) {
+  async _put(name, inStream, rawUrl, headers, backendMetadata, redirects) {
     throw new Error('Putting not yet implemented');
   }
 
