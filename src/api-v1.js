@@ -110,21 +110,34 @@ api.declare({
             service: service,
             region: region,
           }
+
           debug(`Found ${url}`);
           return res.json({
             status: result.status,
             url: result.url,
           });
+        } else if (result.status === 'error') {
+          debug('Redirecting uncached copy because error occured during caching');
+          debug(result.stack || 'unknown error');
+          res.status(302);
+          res.location(url);
+          return res.json({
+            url: url,
+            msg: 'Error caching file, redirecting to original',
+          });
         }
+
         // When we have Influx set up, let's submit this datapoint
         // to a series called 'Cloud Mirror Cache Hits'
         await delayer(1000);
       }
+
       // If we get here, we're doing the fallback of redirecting
-      // to the original URL
+      // to the original URL because the caching took too long
       debug(`Redirecting to uncached copy because it took too long ${url}`);
       res.status(302);
       res.location(url);
+
       // When we have Influx set up, let's submit this datapoint
       // to a series called 'Cloud Mirror Cache Misses'
       let datapoint = {

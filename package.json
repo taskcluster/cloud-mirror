@@ -22,7 +22,6 @@
     "babel-plugin-transform-runtime": "^6.1.18",
     "bluebird": "^3.2.1",
     "commander": "^2.9.0",
-    "content-disposition": "^0.5.0",
     "continuation-local-storage": "^3.1.4",
     "cookie": "^0.2.3",
     "debug": "^2.2.0",
