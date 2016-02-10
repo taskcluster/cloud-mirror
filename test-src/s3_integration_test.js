@@ -9,6 +9,8 @@ let _aws = require('aws-sdk-promise');
 let _ = require('lodash');
 let sinon = require('sinon');
 
+let sb = require('../lib/storage-backend');
+
 let debug = require('debug')('s3-integration-tests');
 
 let httpbin = 'https://httpbin.org';
@@ -61,6 +63,7 @@ describe('Integration Tests', function() {
   let baseUrl;
   let cfg;
   let testBucket;
+  let sandbox;
 
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
@@ -71,10 +74,12 @@ describe('Integration Tests', function() {
     redis = await main('redis', {process: 'redis', profile: 'test'});
     baseUrl = cfg.server.publicUrl + '/v1';
     await redis.flushdb();
+    sandbox = sinon.sandbox.create();
   });
 
   afterEach(async () => {
     await deleteBucketRecursively(cfg);
+    sandbox.restore();
   });
 
   it('should be able to start api server', async function() {
@@ -188,19 +193,42 @@ describe('Integration Tests', function() {
       assume(afterVal).deeply.equals(origVal);
     });
 
-    it('should redirect to original url after timeout', async done => {
-      await backend.stopListeningToRequestQueue();
-      let testUrl = 'https://www.mozilla.org';
-      try {
-        let expected = await request({
-          url: baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl),
-          followRedirect: false
-        });
-        done(new Error('did not redirect back to original url')); 
-      } catch (e) {
-        assume(e.url === testUrl);
-        done();
-      }
+    it('should redirect to original url if caching takes too long', async () => {
+      let testUrl = httpbin + '/user-agent';
+      let fakeGetBackendUrl = sandbox.stub(sb.StorageBackend.prototype, 'getBackendUrl');
+      fakeGetBackendUrl.returns(Promise.resolve({
+        status: 'pending',
+        url: testUrl,
+      }));
+      let urlEncodedTestUrl = encodeURIComponent(testUrl);
+      let actual = await request({
+        url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
+        followRedirect: false,
+        simple: false,
+        resolveWithFullResponse: true,
+      });
+
+      assume(actual.statusCode).equals(302);
+      assume(actual.headers[actual.caseless.has('location')]).equals(testUrl);
+    });
+
+    it('should redirect to original url if there is an error while caching', async () => {
+      let testUrl = httpbin + '/user-agent';
+      let fakeGetBackendUrl = sandbox.stub(sb.StorageBackend.prototype, 'getBackendUrl');
+      fakeGetBackendUrl.returns(Promise.resolve({
+        status: 'error',
+        url: testUrl,
+      }));
+      let urlEncodedTestUrl = encodeURIComponent(testUrl);
+      let actual = await request({
+        url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
+        followRedirect: false,
+        simple: false,
+        resolveWithFullResponse: true,
+      });
+
+      assume(actual.statusCode).equals(302);
+      assume(actual.headers[actual.caseless.has('location')]).equals(testUrl);
     });
   });
 });
