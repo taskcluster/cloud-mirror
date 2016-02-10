@@ -43,7 +43,7 @@ let requestHead = async (u) => {
 
 /**
  * This base class contains all the logic required to manage an abstract
- * storage backend.  We will have one implementation for each service we use
+ * storage system.  We will have one implementation for each service we use
  * (e.g. S3, Azure) and those implementations will have an instance per region.
  * A StorageBackend instance can talk to a single pool of resources.  This
  * means that, in S3 terms, that we can have one or more instances for the
@@ -56,7 +56,7 @@ let requestHead = async (u) => {
  * *must* be implemented in order for the guaruntees made in the base class to
  * be correct.  The storageAddressToUrl method *must* be overridden even
  * though the storageAddress method doesn't need to be.  The reason for this is
- * that the backend address in the most general case could be assumed to be a
+ * that the storage address in the most general case could be assumed to be a
  * single user-defined string passed as, say, a query parameter.  Because in
  * the abstract case we have no possible way to turn a URL Encoded into a valid
  * URL pointing to the cached resource, we require implementors to override
@@ -80,7 +80,7 @@ let requestHead = async (u) => {
  *  cache must match at least one of these regular expressions
  *  - cacheTTL: the amount of time that a cache entry is put into redis for
  *  - redis: a reference to the redis object we will use to cache our
- *  backend addresses
+ *  storage addresses
  *  - sqs: a reference to an sqs object which will be used to listen for
  *  incoming copy requests as well as to send out completion messages
  *  - redirectLimit: maximum number of redirects allowed (default 30)
@@ -304,9 +304,9 @@ class StorageBackend {
   /**
    * High level API which inserts a resource specified by a given URL into the
    * cache.  In this base class, we take care of everything that is not tied to
-   * the individual storage backend system requirements.  This means that
-   * implementing a new backend means only understanding how to do the
-   * low-level operations unique to that platform
+   * the individual storage system requirements.  This means that implementing
+   * a new backend means only understanding how to do the low-level operations
+   * unique to that platform
    */
   async put(rawUrl) {
     // Open question: Do we want to validate each hop in a redirect chain or
@@ -340,7 +340,7 @@ class StorageBackend {
     debug(`${this.id} Created read stream for ${rawUrl}`);
 
     // Figure out the name
-    debug(`${this.id} Backend Address: ${JSON.stringify(storageAddress)}`);
+    debug(`${this.id} Storage Address: ${JSON.stringify(storageAddress)}`);
 
 
     // We need the following pieces of information in the service-specific
@@ -352,15 +352,13 @@ class StorageBackend {
     let contentEncoding = readInfo.meta.headers[readInfo.meta.caseless.has('content-encoding')];
     let contentDisposition = readInfo.meta.headers[readInfo.meta.caseless.has('content-disposition')];
 
-
-    // Figure out the HTTP Headers to send to the uploading backend
     let headers = {
       'Content-Type': contentType,
       'Content-Disposition': contentDisposition,
       'Content-Encoding': contentEncoding,
     };
 
-    let backendMetadata = {
+    let storageMetadata = {
       'upstream-etag': upstreamEtag,
       url: rawUrl,
       stored: new Date().toISOString(),
@@ -376,7 +374,7 @@ class StorageBackend {
                       readStream,
                       readInfo.url,
                       headers,
-                      backendMetadata,
+                      storageMetadata,
                       readInfo.addresses);
     } catch (err) {
       await this.storeAddress(rawUrl, 'error', this.cacheTTL, {}, err.stack || err);
@@ -417,15 +415,15 @@ class StorageBackend {
   async getBackendUrl(rawUrl) {
     let cacheEntry = await this.readAddressFromCache(rawUrl);
 
-    let backendUrl = this.storageAddressToUrl(this.storageAddress(rawUrl));
+    let storageUrl = this.storageAddressToUrl(this.storageAddress(rawUrl));
 
     if (!cacheEntry) {
       debug(`${this.id} Cache entry not found for ${rawUrl}`);
       // FIRST CHECK IF THE THING EXISTS FOR REAL AND INSERT
       // IF IT DOES!
-      let headers = await requestHead(backendUrl);
+      let headers = await requestHead(storageUrl);
       if (headers.statusCode >= 200 && headers.statusCode < 300) {
-        debug(`${this.id} Found ${rawUrl} in backend, backfilling cache`);
+        debug(`${this.id} Found ${rawUrl} in storage, backfilling cache`);
         // We want to make sure that the TTL of the redis entry is 30m less
         // than when the object expires
         let expires = await this.expirationDate(headers);
@@ -438,14 +436,14 @@ class StorageBackend {
         await this.storeAddress(rawUrl, 'present', Math.floor(setTTL), this.storageAddress(rawUrl));
         return {
           status: 'present',
-          url: backendUrl,
+          url: storageUrl,
         }
       } else {
-        debug(`${this.id} Did not find ${rawUrl} in backend, inserting`);
+        debug(`${this.id} Did not find ${rawUrl} in storage, inserting`);
         this.requestPut(rawUrl);
         return {
           status: 'pending',
-          url: backendUrl,
+          url: storageUrl,
         };
       }
     } else {
@@ -456,22 +454,22 @@ class StorageBackend {
         this.requestPut(rawUrl);
         return {
           status: 'error',
-          url: backendUrl,
+          url: storageUrl,
         };
       } else if (cacheEntry.status === 'pending') {
         return {
           status: 'pending',
-          url: backendUrl,
+          url: storageUrl,
         };
       } else if (cacheEntry.status === 'present') {
         debug(`${this.id} Cache entry found for ${rawUrl} found`);
         // The assumption here is that if an item is in redis that it's
-        // in the backend.  We'd have to hit the backend url with a HEAD
+        // in the storage.  We'd have to hit the storage url with a HEAD
         // to check for sure, which is extra overhead.  Let's see how often
         // we hit this.
         return {
           status: 'present',
-          url: backendUrl,
+          url: storageUrl,
         };
       } else {
         debug(cacheEntry);
@@ -601,7 +599,7 @@ class StorageBackend {
   }
 
   /**
-   * Create a name for a given storage backend.  Since we can have a reasonable
+   * Create a key for a given storage backend.  Since we can have a reasonable
    * guess of an appropriate default action, we do have an implementation in
    * the base class.  This implementation assumes that you'll essentially have
    * a single parameter in a URL in order to resolve it in the backing storage.
@@ -618,7 +616,7 @@ class StorageBackend {
   }
 
   /**
-   * Determine when the file in the backend expires
+   * Determine when the file in storage expires
    */
   async expirationDate(headers) {
     return this._expirationDate(headers);
@@ -641,14 +639,14 @@ class StorageBackend {
    * information that can be used to identify the copy of this resource that it
    * contains.
    */
-  async _put(name, inStream, rawUrl, headers, backendMetadata, redirects) {
+  async _put(name, inStream, rawUrl, headers, storageMetadata, redirects) {
     throw new Error('Putting not yet implemented');
   }
 
-  // Create a real URL from a backend address
+  // Create a real URL from a storage address
   storageAddressToUrl(storageAddress) {
     // We throw here because it's impossible to know how the implementing class
-    // will map this backend address into a real url.  Simply decoding the URL
+    // will map this storage address into a real url.  Simply decoding the URL
     // would mean that the cache isn't used and that's the only thing we know
     // how to do with this data
     throw new Error('Unimplemented');

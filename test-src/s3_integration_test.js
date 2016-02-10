@@ -66,12 +66,12 @@ describe('Integration Tests', function() {
   let sandbox;
 
   before(async () => {
-    cfg = await main('cfg', {process: 'cfg', profile: 'test'});
+    cfg = await main('cfg', {process: 'cfg', profile: 'development'});
     await deleteBucketRecursively(cfg);
   });
 
   beforeEach(async () => {
-    redis = await main('redis', {process: 'redis', profile: 'test'});
+    redis = await main('redis', {process: 'redis', profile: 'development'});
     baseUrl = cfg.server.publicUrl + '/v1';
     await redis.flushdb();
     sandbox = sinon.sandbox.create();
@@ -85,7 +85,7 @@ describe('Integration Tests', function() {
   it('should be able to start api server', async function() {
     let server = await main('server', {
       process: 'server',
-      profile: 'test',
+      profile: 'development',
     });
     return server.terminate();
   });
@@ -93,7 +93,7 @@ describe('Integration Tests', function() {
   it('should be able to start and stop listening backends', async function() {
     let backends = await main('listeningS3Backends', {
       process: 'listeningS3Backends',
-      profile: 'test',
+      profile: 'development',
     });
 
     await backends['us-west-1'].stopListeningToRequestQueue();
@@ -107,11 +107,11 @@ describe('Integration Tests', function() {
     before(async () => {
       server = await main('server', {
         process: 'server',
-        profile: 'test',
+        profile: 'development',
       });
       backend = await main('listeningS3Backends', {
         process: 'server',
-        profile: 'test',
+        profile: 'development',
       });
       backend = backend['us-west-1'];
     });

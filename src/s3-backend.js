@@ -99,12 +99,12 @@ class S3Backend extends StorageBackend {
    * Upload a file to S3 using the aws-sdk upload method.  This method does multi-part
    * uploading and automatic cleanup of failed attemptes.
    */
-  async _putUsingS3Upload(name, inStream, rawUrl, headers, backendMetadata, redirects) {
+  async _putUsingS3Upload(storageAddress, inStream, rawUrl, headers, storageMetadata, redirects) {
     assert(inStream);
-    assert(name);
+    assert(storageAddress);
     assert(rawUrl);
     assert(headers);
-    assert(backendMetadata);
+    assert(storageMetadata);
     assert(redirects);
 
     // We want to expose the set of redirects that occured when putting this
@@ -119,12 +119,12 @@ class S3Backend extends StorageBackend {
     // end up with double encoding
     let request = {
       Bucket: this.bucket,
-      Key: decodeURL(name.key),
+      Key: decodeURL(storageAddress),
       Body: inStream,
       //ContentType: contentType,
       //ContentDisposition: contentDisposition(name.filename),
       ACL: 'public-read',
-      Metadata: backendMetadata,
+      Metadata: storageMetadata,
     };
     assert(headers['Content-Type']);
     request.ContentType = headers['Content-Type'];
@@ -170,15 +170,15 @@ class S3Backend extends StorageBackend {
   /**
    * Implementation of the base class
    */
-  async _put(name, inStream, rawUrl, headers, backendMetadata, redirects, upstreamEtag) {
-    assert(name, 'missing name for _put');
+  async _put(storageAddress, inStream, rawUrl, headers, storageMetadata, redirects, upstreamEtag) {
+    assert(storageAddress, 'missing storageAddress for _put');
     assert(inStream, 'missing inStream for _put');
     assert(rawUrl);
     assert(headers);
-    assert(backendMetadata);
+    assert(storageMetadata);
     assert(redirects);
     assert(inStream instanceof stream.Readable, 'inStream must be stream');
-    return await this.uploadMethod(name, inStream, rawUrl, headers, backendMetadata, redirects, upstreamEtag);
+    return await this.uploadMethod(storageAddress, inStream, rawUrl, headers, storageMetadata, redirects, upstreamEtag);
   }
 
   /**

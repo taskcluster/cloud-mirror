@@ -72,26 +72,10 @@ production:
     forceSSL: true
     trustProxy: true
 
-test:
-  app:
-    ensureSSL: false
-    maxWaitForCachedCopy: 5000 #ms
-    allowedPatterns:
-      - '.*'
-  backend:
-    s3:
-      regions: 'us-west-1'
-    cacheTTL: 20000
-  redis:
-    host: 127.0.0.1
-  server:
-    port: 5556
-    env: development
-    publicUrl: http://localhost:5556
-
 development:
   app:
     ensureSSL: false
+    maxWaitForCachedCopy: 5000 #ms
     allowedPatterns:
       - '.*'
   redis:
