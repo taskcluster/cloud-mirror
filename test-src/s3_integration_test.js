@@ -230,5 +230,19 @@ describe('Integration Tests', function() {
       assume(actual.statusCode).equals(302);
       assume(actual.headers[actual.caseless.has('location')]).equals(testUrl);
     });
+
+    it('should parse the s3 expiration header correctly', async () => {
+      let testUrl = httpbin + '/ip';
+      let urlEncodedTestUrl = encodeURIComponent(testUrl);
+      let actual = await request({
+        url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
+        resolveWithFullResponse: true,
+      }); 
+
+      let parsedDate = await backend._expirationDate(actual);
+      let reparsedDate = new Date(parsedDate.toISOString());
+      assume(parsedDate).deeply.equals(reparsedDate);
+    });
+
   });
 });

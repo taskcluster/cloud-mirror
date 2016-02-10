@@ -67,12 +67,12 @@ class S3Backend extends StorageBackend {
    * Delete from S3
    */
   async _expire(storageAddress) {
-    debug(`${this.id} Deleting ${storageAddress.bucket}:${storageAddress.key}`);
+    debug(`${this.id} Deleting ${this.bucket}:${storageAddress}`);
     await this.s3.deleteObject({
       Bucket: storageAddress.bucket,
       Key: storageAddress.key,
     }).promise();
-    debug(`${this.id} Deleted ${storageAddress.bucket}:${storageAddress.key}`);
+    debug(`${this.id} Deleted ${this.bucket}:${storageAddress}`);
   }
 
   /**
@@ -81,8 +81,8 @@ class S3Backend extends StorageBackend {
    * This is stored in the format:
    * expiry-date="Fri, 15 Jan 2016 00:00:00 GMT", rule-id="eu-central-1-1-day"
    */
-  async _expirationDate(headers) {
-    let header = headers.caseless.get('x-amz-expiration');
+  async _expirationDate(response) {
+    let header = response.caseless.get('x-amz-expiration');
     // This header is sent in such a silly format.  Using cookie format or
     // sending the value without packing it in with a second value (rule-id)
     // would be way nicer.
