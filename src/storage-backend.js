@@ -54,8 +54,8 @@ let requestHead = async (u) => {
  *
  * The methods defined with a prefixed underscore (e.g. _put, _expire, etc)
  * *must* be implemented in order for the guaruntees made in the base class to
- * be correct.  The _backendAddressToUrl method *must* be overridden even
- * though the backendAddress method doesn't need to be.  The reason for this is
+ * be correct.  The _storageAddressToUrl method *must* be overridden even
+ * though the storageAddress method doesn't need to be.  The reason for this is
  * that the backend address in the most general case could be assumed to be a
  * single user-defined string passed as, say, a query parameter.  Because in
  * the abstract case we have no possible way to turn a URL Encoded into a valid
@@ -319,9 +319,9 @@ class StorageBackend {
 
     debug(`${this.id} put(${rawUrl})`);
 
-    let backendAddress = this.backendAddress(rawUrl);
+    let storageAddress = this.storageAddress(rawUrl);
 
-    await this.storeAddress(rawUrl, 'pending', this.cacheTTL, backendAddress);
+    await this.storeAddress(rawUrl, 'pending', this.cacheTTL, storageAddress);
 
     // The meter is a passthrough stream which lets me count the number of
     // bytes that go through it.  This lets us collect metrics on the copying
@@ -340,7 +340,7 @@ class StorageBackend {
     debug(`${this.id} Created read stream for ${rawUrl}`);
 
     // Figure out the name
-    debug(`${this.id} Backend Address: ${JSON.stringify(backendAddress)}`);
+    debug(`${this.id} Backend Address: ${JSON.stringify(storageAddress)}`);
 
 
     // We need the following pieces of information in the service-specific
@@ -372,7 +372,7 @@ class StorageBackend {
     // account
     let startTime = new Date();
     try {
-      await this._put(backendAddress,
+      await this._put(storageAddress,
                       readStream,
                       readInfo.url,
                       headers,
@@ -397,7 +397,7 @@ class StorageBackend {
     // Now that the resource is in the cache, we want to make sure that we
     // reflect that in our redis.  We do this by setting the status
     // property of the redis value to be present.
-    await this.storeAddress(rawUrl, 'present', this.cacheTTL, backendAddress);
+    await this.storeAddress(rawUrl, 'present', this.cacheTTL, storageAddress);
   }
 
   /**
@@ -417,7 +417,7 @@ class StorageBackend {
   async getBackendUrl(rawUrl) {
     let cacheEntry = await this.readAddressFromCache(rawUrl);
 
-    let backendUrl = this.backendAddressToUrl(this.backendAddress(rawUrl));
+    let backendUrl = this.storageAddressToUrl(this.storageAddress(rawUrl));
 
     if (!cacheEntry) {
       debug(`${this.id} Cache entry not found for ${rawUrl}`);
@@ -435,7 +435,7 @@ class StorageBackend {
         setTTL -= 30 * 60 * 1000;
         // Now make it seconds
         setTTL /= 1000;
-        await this.storeAddress(rawUrl, 'present', Math.floor(setTTL), this.backendAddress(rawUrl));
+        await this.storeAddress(rawUrl, 'present', Math.floor(setTTL), this.storageAddress(rawUrl));
         return {
           status: 'present',
           url: backendUrl,
@@ -484,8 +484,8 @@ class StorageBackend {
    * Remove all caches for a given URL
    */
   async expire(rawUrl) {
-    let backendAddress = this.backendAddress(rawUrl);
-    this._expire(backendAddress);
+    let storageAddress = this.storageAddress(rawUrl);
+    this._expire(storageAddress);
     // Here's where we'd delete from database and
     let key = this.id + '_' + encodeURL(rawUrl);
     await this.redis.delAsync(key);
@@ -539,7 +539,7 @@ class StorageBackend {
    * of information about the problem.  The rawUrl parameter must be a non-URL encoded
    * value, all URL encoding will be done inside this method
    */
-  async storeAddress(rawUrl, status, ttl, backendAddress, stack) {
+  async storeAddress(rawUrl, status, ttl, storageAddress, stack) {
     assert(rawUrl);
     assert(status);
     assert(typeof ttl === 'number');
@@ -549,12 +549,12 @@ class StorageBackend {
       throw new Error('status must be present, pending or error, not ' + status);
     }
 
-    assert(backendAddress);
+    assert(storageAddress);
 
     let cacheEntry = {
       originalUrl: rawUrl,
       status: status,
-      backendAddress: JSON.stringify(backendAddress),
+      storageAddress: JSON.stringify(storageAddress),
     }
 
     if (status === 'error') {
@@ -579,7 +579,7 @@ class StorageBackend {
     let key = this.id + '_' + encodeURL(rawUrl);
     let result = await this.redis.hgetallAsync(key);
     if (result) {
-      result.backendAddress = JSON.parse(result.backendAddress);
+      result.storageAddress = JSON.parse(result.storageAddress);
     }
     return result;
   }
@@ -611,7 +611,7 @@ class StorageBackend {
    * Overriding this is only needed if you require more than a single token
    * to determine where a file is in a given backing store
    */
-  backendAddress(rawUrl) {
+  storageAddress(rawUrl) {
     let key = encodeURL(rawUrl);
     assert(key.length <= 1024, 'key must be 1024 or fewer unicode characters');
     return encodeURL(key);
@@ -646,7 +646,7 @@ class StorageBackend {
   }
 
   // Create a real URL from a backend address
-  _backendAddressToUrl(backendAddress) {
+  _storageAddressToUrl(storageAddress) {
     // We throw here because it's impossible to know how the implementing class
     // will map this backend address into a real url.  Simply decoding the URL
     // would mean that the cache isn't used and that's the only thing we know

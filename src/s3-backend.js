@@ -66,13 +66,13 @@ class S3Backend extends StorageBackend {
   /**
    * Delete from S3
    */
-  async _expire(backendAddress) {
-    debug(`${this.id} Deleting ${backendAddress.bucket}:${backendAddress.key}`);
+  async _expire(storageAddress) {
+    debug(`${this.id} Deleting ${storageAddress.bucket}:${storageAddress.key}`);
     await this.s3.deleteObject({
-      Bucket: backendAddress.bucket,
-      Key: backendAddress.key,
+      Bucket: storageAddress.bucket,
+      Key: storageAddress.key,
     }).promise();
-    debug(`${this.id} Deleted ${backendAddress.bucket}:${backendAddress.key}`);
+    debug(`${this.id} Deleted ${storageAddress.bucket}:${storageAddress.key}`);
   }
 
   /**
@@ -185,28 +185,28 @@ class S3Backend extends StorageBackend {
    * S3 Has some more useful information that we want to use to identify a
    * resource
    */
-  backendAddress(rawUrl) {
+  storageAddress(rawUrl) {
     let urlparts = url.parse(rawUrl);
     let filename = urlparts.pathname.split('/');
     filename = filename[filename.length - 1];
     return {
       bucket: this.bucket,
-      key: super.backendAddress(rawUrl),
+      key: super.storageAddress(rawUrl),
       region: this.region,
       filename: filename,
     };
   }
 
   /**
-   * Given an S3 backendAddress, resolve a valid S3 URL.  Note that S3 does
+   * Given an S3 storageAddress, resolve a valid S3 URL.  Note that S3 does
    * funny things regarding the domain name of the URL.  For legacy reasons
    * the us-east-1 region does not have its region in the domain.  We could
    * use different hostnames for some EU and maybe southeast-Asia regions
    * but let's stick to the pattern
    */
-  backendAddressToUrl(backendAddress) {
+  storageAddressToUrl(storageAddress) {
     // http://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region
-    let r = backendAddress.region;
+    let r = storageAddress.region;
     let s3Domain;
 
     if (r === 'us-east-1') {
@@ -215,11 +215,11 @@ class S3Backend extends StorageBackend {
       s3Domain = `s3-${r}.amazonaws.com`;
     }
 
-    let vhost = backendAddress.bucket + '.' + s3Domain;
+    let vhost = storageAddress.bucket + '.' + s3Domain;
     return url.format({
       protocol: 'https:',
       host: vhost,
-      pathname: backendAddress.key
+      pathname: storageAddress.key
     });
 
   }
