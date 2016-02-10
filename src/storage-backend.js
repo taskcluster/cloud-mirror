@@ -54,7 +54,7 @@ let requestHead = async (u) => {
  *
  * The methods defined with a prefixed underscore (e.g. _put, _expire, etc)
  * *must* be implemented in order for the guaruntees made in the base class to
- * be correct.  The _storageAddressToUrl method *must* be overridden even
+ * be correct.  The storageAddressToUrl method *must* be overridden even
  * though the storageAddress method doesn't need to be.  The reason for this is
  * that the backend address in the most general case could be assumed to be a
  * single user-defined string passed as, say, a query parameter.  Because in
@@ -646,7 +646,7 @@ class StorageBackend {
   }
 
   // Create a real URL from a backend address
-  _storageAddressToUrl(storageAddress) {
+  storageAddressToUrl(storageAddress) {
     // We throw here because it's impossible to know how the implementing class
     // will map this backend address into a real url.  Simply decoding the URL
     // would mean that the cache isn't used and that's the only thing we know
