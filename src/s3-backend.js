@@ -48,6 +48,7 @@ class S3Backend extends StorageBackend {
       redis: config.redis,
       allowedPatterns: config.allowedPatterns,
       id: 'S3_' + config.region,
+      profile: config.profile,
     };
     super(superConfig);
     this.region = config.region;

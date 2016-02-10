@@ -94,7 +94,11 @@ class StorageBackend {
     // A nice identifier for error messages
     assert(this.config.id, 'Missing storage backend ID');
     this.id = this.config.id;
-    this.copyRequestQueueName = this.id + '_copy_requests';
+
+    // We need a profile for the sqs queue
+    assert(this.config.profile, 'Missing storage backend profile');
+    this.profile = this.config.profile;
+    this.copyRequestQueueName = this.id + '_' + this.profile + '_copy_requests';
 
     // Allowed Patterns is a list of regular expressions which will operate on decoded
     // rawUrls to determine if they are allowed in this system

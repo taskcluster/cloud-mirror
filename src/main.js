@@ -148,6 +148,7 @@ let load = base.loader({
       // Now, let's instantiate the backends we need!
       for (let region of regions) {
         let backend = new s3Backend.S3Backend({
+          profile: profile,
           region: region,
           bucket: s3buckets[region],
           cacheTTL: cfg.backend.cacheTTL,
