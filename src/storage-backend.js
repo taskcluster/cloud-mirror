@@ -1,3 +1,4 @@
+'use strict';
 let assert = require('assert');
 let crypto = require('crypto');
 let url = require('url');
@@ -36,8 +37,7 @@ let requestHead = async (u) => {
       });
     });
   });
-}
-
+};
 
 //http://docs.aws.amazon.com/AWSJavaScriptSDK/latest/index.html
 
@@ -190,7 +190,7 @@ class StorageBackend {
    *   those.  This can be checked for after this call by using the addresses
    *   property of the resolution object.
    */
-  async validateInputURL (firstUrl) {
+  async validateInputURL(firstUrl) {
     // Number of redirects to follow
     let addresses = [];
 
@@ -276,7 +276,7 @@ class StorageBackend {
         // Consider using an exponential backoff and retry here
         let err = new Error('HTTP Error while redirecting');
         err.code = 'HTTPError';
-        throw err
+        throw err;
       }
     }
     let err = new Error(`Limit of ${this.redirectLimit} redirects reached:` +
@@ -342,7 +342,6 @@ class StorageBackend {
     // Figure out the name
     debug(`${this.id} Storage Address: ${JSON.stringify(storageAddress)}`);
 
-
     // We need the following pieces of information in the service-specific
     // implementations
     let contentType = readInfo.meta.headers[readInfo.meta.caseless.has('content-type')];
@@ -388,7 +387,7 @@ class StorageBackend {
       url: rawUrl,
       duration: duration,
       fileSize: m.bytes,
-    }
+    };
 
     debug(`${this.id} Uploaded '${rawUrl}' ${m.bytes} bytes in ${duration/1000} seconds`);
 
@@ -437,7 +436,7 @@ class StorageBackend {
         return {
           status: 'present',
           url: storageUrl,
-        }
+        };
       } else {
         debug(`${this.id} Did not find ${rawUrl} in storage, inserting`);
         this.requestPut(rawUrl);
@@ -446,35 +445,33 @@ class StorageBackend {
           url: storageUrl,
         };
       }
+    } else if (cacheEntry.status === 'error') {
+      // We want to retry error cases.
+      // Maybe we should log something into influx to count how often we're in
+      // this case?
+      this.requestPut(rawUrl);
+      return {
+        status: 'error',
+        url: storageUrl,
+      };
+    } else if (cacheEntry.status === 'pending') {
+      return {
+        status: 'pending',
+        url: storageUrl,
+      };
+    } else if (cacheEntry.status === 'present') {
+      debug(`${this.id} Cache entry found for ${rawUrl} found`);
+      // The assumption here is that if an item is in redis that it's
+      // in the storage.  We'd have to hit the storage url with a HEAD
+      // to check for sure, which is extra overhead.  Let's see how often
+      // we hit this.
+      return {
+        status: 'present',
+        url: storageUrl,
+      };
     } else {
-      if (cacheEntry.status === 'error') {
-        // We want to retry error cases.
-        // Maybe we should log something into influx to count how often we're in
-        // this case?
-        this.requestPut(rawUrl);
-        return {
-          status: 'error',
-          url: storageUrl,
-        };
-      } else if (cacheEntry.status === 'pending') {
-        return {
-          status: 'pending',
-          url: storageUrl,
-        };
-      } else if (cacheEntry.status === 'present') {
-        debug(`${this.id} Cache entry found for ${rawUrl} found`);
-        // The assumption here is that if an item is in redis that it's
-        // in the storage.  We'd have to hit the storage url with a HEAD
-        // to check for sure, which is extra overhead.  Let's see how often
-        // we hit this.
-        return {
-          status: 'present',
-          url: storageUrl,
-        };
-      } else {
-        debug(cacheEntry);
-        throw new Error('Unsure how to handle this cacheEntry');
-      }
+      debug(cacheEntry);
+      throw new Error('Unsure how to handle this cacheEntry');
     }
   }
 
@@ -488,7 +485,6 @@ class StorageBackend {
     let key = this.id + '_' + encodeURL(rawUrl);
     await this.redis.delAsync(key);
   }
-
 
   /**
    * Create a read stream for a URL.  The result of this function is to be used
@@ -504,7 +500,7 @@ class StorageBackend {
       url: urlInfo.url,
       headers: {
         'Accept-Encoding': '*',
-      }
+      },
     });
 
     obj.on('error', err => {
@@ -553,7 +549,7 @@ class StorageBackend {
       originalUrl: rawUrl,
       status: status,
       storageAddress: JSON.stringify(storageAddress),
-    }
+    };
 
     if (status === 'error') {
       assert(stack);
@@ -678,4 +674,4 @@ module.exports = {
   encodeURL,
   decodeURL,
   requestHead,
-}
+};

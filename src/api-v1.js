@@ -1,3 +1,4 @@
+'use strict';
 let debug = require('debug')('cloud-mirror:api-v1');
 let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
@@ -28,10 +29,10 @@ api.declare({
   // generated API-References.  A value of '', e.g "/redirect/s/r/u/" would be
   // fine, it just has to evaluate as falsy
   route: '/redirect/:service/:region/:url/:error?',
-  name: 'redirect', 
+  name: 'redirect',
   //deferAuth: false,
   //scopes: [],
-  title: "Redirect to backing cache", 
+  title: 'Redirect to backing cache',
   description: [
     'Redirect to the copy of :url in :region.  If there is',
     'no copy of the file in that region, submit a request to',
@@ -82,6 +83,8 @@ api.declare({
           case 'InsecureURL':
             msg = 'Refusing to follow a non-SSL redirect';
             break;
+          default:
+            break;
         }
         return res.status(400).json({
           msg: msg,
@@ -93,7 +96,7 @@ api.declare({
 
       let startTime = new Date();
       let x = 0;
-      while ((new Date() - startTime) < maxWaitForCachedCopy) {
+      while (new Date() - startTime < maxWaitForCachedCopy) {
         debug(`Check ${x++} of ${url}`);
 
         let result = await backend.getBackendUrl(url);
@@ -109,7 +112,7 @@ api.declare({
             url: url,
             service: service,
             region: region,
-          }
+          };
 
           debug(`Found ${url}`);
           return res.json({
@@ -144,7 +147,7 @@ api.declare({
         url: url,
         service: service,
         region: region,
-      }
+      };
 
       return res.json({
         url: url,
@@ -176,7 +179,7 @@ api.declare({
   name: 'purge',
   //deferAuth: false,
   //scopes: [],
-  title: "Purge resource from backing cache", 
+  title: 'Purge resource from backing cache',
   description: [
     'Redirect to the copy of :url in :region.  If there is',
     'no copy of the file in that region, submit a request to',
@@ -238,7 +241,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function (req, res) {
+}, function(req, res) {
   res.status(200).json({
     alive: true,
     uptime: process.uptime(),
@@ -255,7 +258,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function (req, res) {
+}, function(req, res) {
   let host = req.get('host');
   let proto = req.connection.encrypted ? 'https' : 'http';
   res.status(200).json(api.reference({

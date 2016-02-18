@@ -1,3 +1,4 @@
+'use strict';
 let storageBackend = require('./storage-backend.js');
 let encodeURL = storageBackend.encodeURL;
 let decodeURL = storageBackend.decodeURL;
@@ -142,7 +143,7 @@ class S3Backend extends StorageBackend {
     }
 
     // For the time being, we don't support Cache-Control.  Once
-    // we do, we should consider setting the TTL in the cache and 
+    // we do, we should consider setting the TTL in the cache and
     // S3 appropriately
     /*if (headers['Cache-Control']) {
       request.CacheControl = headers['Cache-Control'];
@@ -152,7 +153,7 @@ class S3Backend extends StorageBackend {
     }*/
     assert(!headers['Cache-Control']);
     assert(!headers['Expires']);
-    
+
     let options = {
       partSize: 32 * 1024 * 1024,
       queueSize: 4,
@@ -164,7 +165,7 @@ class S3Backend extends StorageBackend {
     });*/
     let result = await wrapSend(upload);
     debug(`${this.id} Finished S3 upload`);
-    return result
+    return result;
   }
 
   /**
@@ -223,7 +224,7 @@ function validateS3BucketName(name, sslVhost = false) {
   // Bucket names must be a series of one or more labels. Adjacent labels are
   // separated by a single period (.). Bucket names can contain lowercase
   // letters, numbers, and hyphens. Each label must start and end with a
-  // lowercase letter or a number. 
+  // lowercase letter or a number.
   if (/\.\./.exec(name) || /^[^a-z0-9]/.exec(name) || /[^a-z0-9]$/.exec(name)) {
     return false;
   };
@@ -242,7 +243,7 @@ function validateS3BucketName(name, sslVhost = false) {
   // around this, use HTTP or write your own certificate verification logic.
   if (sslVhost) {
     if (/\./.exec(name)) {
-      return false
+      return false;
     }
   }
 
@@ -271,7 +272,7 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
   if (region !== 'us-east-1') {
     params.CreateBucketConfiguration = {
       LocationConstraint: region,
-    }
+    };
   }
 
   try {
@@ -299,9 +300,9 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
           Expiration: {
             Days: lifecycleDays,
           },
-        }
-      ]
-    }
+        },
+      ],
+    },
   };
 
   debug(`Setting S3 lifecycle configuration for ${name} in ${region}`);
@@ -312,5 +313,5 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
 module.exports = {
   S3Backend,
   createS3Bucket,
-}
+};
 

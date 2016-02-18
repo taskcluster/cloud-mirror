@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-"use strict";
+'use strict';
 let debug = require('debug')('cloud-proxy:main');
 let base = require('taskcluster-base');
 let config = require('typed-env-config');
@@ -108,7 +108,7 @@ let load = base.loader({
       referencePrefix: 'cloud-mirror/v1/api.json',
       aws: ctx.cfg.aws,
       component: ctx.cfg.app.statsComponent,
-      drain: ctx.influx
+      drain: ctx.influx,
     })
   },
 
@@ -119,11 +119,11 @@ let load = base.loader({
       let app = base.app(cfg.server);
       app.use('/v1', api);
       return app.createServer();
-    }
+    },
   },
 
   s3backends: {
-    requires: ['cfg', 'sqs', 'redis', 'profile'], 
+    requires: ['cfg', 'sqs', 'redis', 'profile'],
     setup: async ({cfg, sqs, redis, profile}) => {
       // This should probably not all be here...
       let s3objs = {};
@@ -140,7 +140,7 @@ let load = base.loader({
         let bucket = cfg.backend.s3.bucketBase + cfg.server.env;
         bucket += '-' + region;
         s3buckets[region] = bucket;
-        return s3Backend.createS3Bucket(s3, bucket, region, 
+        return s3Backend.createS3Bucket(s3, bucket, region,
                                        cfg.backend.s3.acl,
                                        cfg.backend.s3.lifespan);
       }));
@@ -175,7 +175,7 @@ let load = base.loader({
         s3backends[region].startListeningToRequestQueue();
       }
       return s3backends;
-    }
+    },
   },
 
 }, ['profile', 'process']);

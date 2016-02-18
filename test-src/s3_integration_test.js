@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 let main = require('../lib/main');
 let redis = require('redis');
@@ -23,7 +23,7 @@ async function deleteBucketRecursively(cfg) {
 
   let x;
   try {
-    let y = await aws.headBucket({ Bucket: testBucket}).promise();
+    let y = await aws.headBucket({Bucket: testBucket}).promise();
     if (Object.keys(y.data).length === 0) {
       y = false;
     } else {
@@ -34,10 +34,10 @@ async function deleteBucketRecursively(cfg) {
   }
   if (!x) {
     debug('Bucket already gone, nothing to delete');
-    return
+    return;
   }
 
-  let objs = await aws.listObjects({ Bucket: testBucket}).promise();
+  let objs = await aws.listObjects({Bucket: testBucket}).promise();
 
   objs = objs.data.Contents.map(x => {
     return {
@@ -48,7 +48,7 @@ async function deleteBucketRecursively(cfg) {
   objs = {
     Bucket: testBucket,
     Delete: {
-      Objects: objs,  
+      Objects: objs,
     },
   };
 
@@ -57,7 +57,7 @@ async function deleteBucketRecursively(cfg) {
   debug('Finished deleting test bucket');
 }
 
-describe('Integration Tests', function() {
+describe('Integration Tests', () => {
 
   let redis;
   let baseUrl;
@@ -99,8 +99,7 @@ describe('Integration Tests', function() {
     await backends['us-west-1'].stopListeningToRequestQueue();
   });
 
-
-  describe('functions', function() {
+  describe('functions', () => {
     let server;
     let backend;
 
@@ -118,13 +117,12 @@ describe('Integration Tests', function() {
 
     after(async () => {
       server.terminate();
-      await backend.stop
+      await backend.stop;
     });
 
     beforeEach(async () => {
       await backend.startListeningToRequestQueue();
     });
-
 
     it('should cache a url', async () => {
       let testUrl = httpbin + '/ip';
@@ -164,7 +162,11 @@ describe('Integration Tests', function() {
 
     it('should cache streamed url', async () => {
       let testUrl = httpbin + '/stream/200';
-      let expected = await request(testUrl, {headers: { 'Accept-Encoding': '*' }});
+      let expected = await request(testUrl, {
+        headers: {
+          'Accept-Encoding': '*',
+        },
+      });
       let actual1 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       let actual2 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       assume(actual1).deeply.equals(expected);
@@ -173,7 +175,11 @@ describe('Integration Tests', function() {
 
     it('should cache streamed-bytes url', async () => {
       let testUrl = httpbin + '/stream-bytes/2000?seed=1234&chunk_size=10';
-      let expected = await request(testUrl, {headers: { 'Accept-Encoding': '*' }});
+      let expected = await request(testUrl, {
+        headers: {
+          'Accept-Encoding': '*',
+        },
+      });
       let actual1 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       let actual2 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       assume(actual1).deeply.equals(expected);
@@ -237,7 +243,7 @@ describe('Integration Tests', function() {
       let actual = await request({
         url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
         resolveWithFullResponse: true,
-      }); 
+      });
 
       let parsedDate = await backend._expirationDate(actual);
       let reparsedDate = new Date(parsedDate.toISOString());

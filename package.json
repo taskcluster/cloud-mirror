@@ -7,8 +7,8 @@
     "compile": "babel-compile -c tc-rules/babel-node5 src:lib test-src:test",
     "prepublish": "npm run compile",
     "pretest": "npm run compile",
-    "test": "mocha --require source-map-support/register -t 30s test/*_test.js",
-    "lint": "eslint --rulesdir eslint-rules src test-src",
+    "test": "npm run lint && mocha --require source-map-support/register -t 30s test/*_test.js",
+    "lint": "eslint --rulesdir eslint-rules src/*.js test-src/*.js",
     "debugtest": "mocha debug --require source-map-support/register -t 30s test/*_test.js"
   },
   "author": "John Ford <jhford@mozilla.com>",
