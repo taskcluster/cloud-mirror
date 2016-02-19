@@ -1,7 +1,7 @@
 FROM node:5.5
 MAINTAINER John Ford
-RUN apt-get update -y
-RUN apt-get dist-upgrade -y
+RUN DEBIAN_FRONTEND=noninteractive apt-get update -y
+RUN DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y
 RUN mkdir -p /app
 WORKDIR /app
 ENV NPM_CONFIG_LOGLEVEL=warn
