@@ -8,6 +8,7 @@ defaults:
 
     ensureSSL: false
     redirectLimit: 20
+    sqsBatchSize: 10
     maxWaitForCachedCopy: 90000 #ms
     allowedPatterns:
       - '^https://www.mozilla.org/'
@@ -27,10 +28,12 @@ defaults:
 
   backend:
     s3:
-      regions: 'us-west-1,us-east-1,eu-central-1'
+      regions: 'us-west-1,us-east-1'
       acl: 'public-read'
       bucketBase: 'cloud-mirror-'
       lifespan: 1 # in days, how long should S3 keep this
+      partSize: 33554432 # 32mb
+      queueSize: 4
     cacheTTL: 84600 # 23.5 hours
 
   pulse:

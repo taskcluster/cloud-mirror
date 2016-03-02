@@ -9,7 +9,8 @@ let assert = require('assert');
 let taskcluster = require('taskcluster-client');
 
 let aws = require('aws-sdk-promise');
-let s3Backend = require('./s3-backend');
+let CacheManager = require('./cache-manager').CacheManager;
+let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
 
 let bluebird = require('bluebird');
 let redis = require('redis');
@@ -100,6 +101,9 @@ let load = base.loader({
         redis: ctx.redis,
         s3backends: ctx.s3backends,
         maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
+        allowedPatterns: ctx.cfg.app.allowedPatterns.map(x => new RegExp(x)),
+        redirectLimit: ctx.cfg.app.redirectLimit,
+        ensureSSL: ctx.cfg.app.ensureSSL,
       },
       validator: ctx.validator,
       authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
@@ -125,46 +129,46 @@ let load = base.loader({
   s3backends: {
     requires: ['cfg', 'sqs', 'redis', 'profile'],
     setup: async ({cfg, sqs, redis, profile}) => {
-      // This should probably not all be here...
-      let s3objs = {};
-      let s3buckets = {};
-      let s3backends = {};
+
+      let cacheManagers = {};
       let regions = cfg.backend.s3.regions.split(',');
 
-      // First, let's asynchronusly create the buckets we need
-      await Promise.all(regions.map(region => {
+      for (let region of regions) {
+        let bucket = cfg.backend.s3.bucketBase + cfg.server.env + '-' + region;
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
+        awsCfg.logger = process.stdout;
         let s3 = new aws.S3(awsCfg);
-        s3objs[region] = s3;
-        let bucket = cfg.backend.s3.bucketBase + cfg.server.env;
-        bucket += '-' + region;
-        s3buckets[region] = bucket;
-        return s3Backend.createS3Bucket(s3, bucket, region,
-                                       cfg.backend.s3.acl,
-                                       cfg.backend.s3.lifespan);
-      }));
-
-      // Now, let's instantiate the backends we need!
-      for (let region of regions) {
-        let backend = new s3Backend.S3Backend({
-          profile: profile,
+        let storageProvider = new S3StorageProvider({
           region: region,
-          bucket: s3buckets[region],
-          cacheTTL: cfg.backend.cacheTTL,
-          sqs: sqs,
-          s3: s3objs[region],
-          redis: redis,
-          redirectLimit: cfg.app.redirectLimit,
-          ensureSSL: cfg.app.ensureSSL,
-          allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
+          bucket: bucket,
+          partSize: cfg.backend.s3.partSize,
+          queueSize: cfg.backend.s3.queueSize,
+          s3: s3,
+          acl: cfg.backend.s3.acl,
+          lifespan: cfg.backend.s3.lifespan,
         });
 
-        await backend.init();
+        await storageProvider.init();
 
-        s3backends[region] = backend;
+        let cacheManager = new CacheManager({
+          putQueueName: `S3-${region}-put-request`,
+          allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
+          cacheTTL: cfg.backend.cacheTTL,
+          redis: redis,
+          sqs: sqs,
+          ensureSSL: cfg.app.ensureSSL,
+          storageProvider: storageProvider,
+          redirectLimit: cfg.app.redirectLimit,
+          sqsBatchSize: cfg.app.sqsBatchSize,
+        });
+
+        await cacheManager.init();
+
+        cacheManagers[region] = cacheManager;
       }
-      return s3backends;
+
+      return cacheManagers;
     },
   },
 
@@ -172,7 +176,7 @@ let load = base.loader({
     requires: ['cfg', 's3backends', 'monitor'],
     setup: async ({s3backends}) => {
       for (let region of _.keys(s3backends)) {
-        s3backends[region].startListeningToRequestQueue();
+        s3backends[region].startListeningToPutQueue();
       }
       return s3backends;
     },

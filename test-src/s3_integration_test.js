@@ -9,11 +9,13 @@ let _aws = require('aws-sdk-promise');
 let _ = require('lodash');
 let sinon = require('sinon');
 
-let sb = require('../lib/storage-backend');
-
 let debug = require('debug')('s3-integration-tests');
 
 let httpbin = 'https://httpbin.org';
+
+let cm = require('../lib/cache-manager');
+let sp = require('../lib/storage-provider');
+let s3sp = require('../lib/s3-storage-provider');
 
 async function deleteBucketRecursively(cfg) {
   debug('Deleting test bucket');
@@ -78,7 +80,7 @@ describe('Integration Tests', () => {
   });
 
   afterEach(async () => {
-    await deleteBucketRecursively(cfg);
+    //await deleteBucketRecursively(cfg);
     sandbox.restore();
   });
 
@@ -96,7 +98,7 @@ describe('Integration Tests', () => {
       profile: 'development',
     });
 
-    await backends['us-west-1'].stopListeningToRequestQueue();
+    await backends['us-west-1'].stopListeningToPutQueue();
   });
 
   describe('functions', () => {
@@ -121,16 +123,47 @@ describe('Integration Tests', () => {
     });
 
     beforeEach(async () => {
-      await backend.startListeningToRequestQueue();
+      await backend.startListeningToPutQueue();
     });
 
     it('should cache a url', async () => {
       let testUrl = httpbin + '/ip';
       let expected = await request(testUrl);
+      let actual = await request({
+        url: baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl),
+        followRedirect: false,
+        simple: false,
+        resolveWithFullResponse: true,
+      });
+      //throw new Error(JSON.stringify(actual));
+      let bodyJson = JSON.parse(actual.body);
+      assume(bodyJson.url).equals('https://cloud-mirror-development-us-west-1.' +
+          's3-us-west-1.amazonaws.com/https%3A%2F%2Fhttpbin.org%2Fip');
       let actual1 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       let actual2 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       assume(JSON.parse(actual1)).deeply.equals(JSON.parse(expected));
       assume(JSON.parse(actual2)).deeply.equals(JSON.parse(actual1));
+    });
+
+    it('should use the storage providers url and not the original one', async () => {
+      let testUrl = httpbin + '/user-agent';
+      let fakeUrl = 'https://www.google.com';
+      let fakeGetBackendUrl = sandbox.stub(cm.CacheManager.prototype, 'getUrlForRedirect');
+      fakeGetBackendUrl.returns(Promise.resolve({
+        status: 'present',
+        url: fakeUrl,
+      }));
+
+      let urlEncodedTestUrl = encodeURIComponent(testUrl);
+      let actual = await request({
+        url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
+        followRedirect: false,
+        simple: false,
+        resolveWithFullResponse: true,
+      });
+
+      assume(actual.statusCode).equals(302);
+      assume(actual.headers[actual.caseless.has('location')]).equals(fakeUrl);
     });
 
     it('should cache a gzip url', async () => {
@@ -189,7 +222,7 @@ describe('Integration Tests', () => {
     it('should backfill cache', async () => {
       let testUrl = httpbin + '/user-agent';
       let urlEncodedTestUrl = encodeURIComponent(testUrl);
-      let key = backend.id + '_' + urlEncodedTestUrl;
+      let key = backend.cacheKey(testUrl);
       let expected = await request(baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl);
       let origVal = await redis.hgetallAsync(key);
       await redis.delAsync(key);
@@ -201,7 +234,7 @@ describe('Integration Tests', () => {
 
     it('should redirect to original url if caching takes too long', async () => {
       let testUrl = httpbin + '/user-agent';
-      let fakeGetBackendUrl = sandbox.stub(sb.StorageBackend.prototype, 'getBackendUrl');
+      let fakeGetBackendUrl = sandbox.stub(cm.CacheManager.prototype, 'getUrlForRedirect');
       fakeGetBackendUrl.returns(Promise.resolve({
         status: 'pending',
         url: testUrl,
@@ -220,7 +253,7 @@ describe('Integration Tests', () => {
 
     it('should redirect to original url if there is an error while caching', async () => {
       let testUrl = httpbin + '/user-agent';
-      let fakeGetBackendUrl = sandbox.stub(sb.StorageBackend.prototype, 'getBackendUrl');
+      let fakeGetBackendUrl = sandbox.stub(cm.CacheManager.prototype, 'getUrlForRedirect');
       fakeGetBackendUrl.returns(Promise.resolve({
         status: 'error',
         url: testUrl,
@@ -242,13 +275,13 @@ describe('Integration Tests', () => {
       let urlEncodedTestUrl = encodeURIComponent(testUrl);
       let actual = await request({
         url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
+        followRedirect: true,
         resolveWithFullResponse: true,
       });
 
-      let parsedDate = await backend._expirationDate(actual);
+      let parsedDate = await backend.storageProvider.expirationDate(actual);
       let reparsedDate = new Date(parsedDate.toISOString());
       assume(parsedDate).deeply.equals(reparsedDate);
     });
-
   });
 });

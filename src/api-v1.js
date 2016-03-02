@@ -4,6 +4,7 @@ let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
 let delayer = require('./delayer');
+let validateInputUrl = require('./validate-url');
 
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
@@ -63,35 +64,35 @@ api.declare({
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to redirect to ${logthingy}`);
 
+  try {
+    await validateInputUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+  } catch (err) {
+    debug(err.stack || err);
+    // Intentionally vague because we don't want to reveal
+    // our configuration too much
+    let msg = 'Input URL failed validation for unknown reason';
+    switch (err.code) {
+      case 'HTTPError':
+        msg = 'HTTP Error while trying to resolve redirects';
+        break;
+      case 'DoesNotMatchPatterns':
+        msg = 'Input URL does not match whitelist';
+        break;
+      case 'InsecureURL':
+        msg = 'Refusing to follow a non-SSL redirect';
+        break;
+      default:
+        break;
+    }
+    return res.status(400).json({
+      msg: msg,
+    });
+  }
+
   if (service.toLowerCase() === 's3') {
     if (this.s3backends[region]) {
       let backend = this.s3backends[region];
-      try {
-        await backend.validateInputURL(url);
-      } catch (err) {
-        debug(err.stack || err);
-        // Intentionally vague because we don't want to reveal
-        // our configuration too much
-        let msg = 'Input URL failed validation for unknown reason';
-        switch (err.code) {
-          case 'HTTPError':
-            msg = 'HTTP Error while trying to resolve redirects';
-            break;
-          case 'DoesNotMatchPatterns':
-            msg = 'Input URL does not match whitelist';
-            break;
-          case 'InsecureURL':
-            msg = 'Refusing to follow a non-SSL redirect';
-            break;
-          default:
-            break;
-        }
-        return res.status(400).json({
-          msg: msg,
-        });
-      }
 
-      // TODO: make this configurable
       let maxWaitForCachedCopy = this.maxWaitForCachedCopy;
 
       let startTime = new Date();
@@ -99,7 +100,7 @@ api.declare({
       while (new Date() - startTime < maxWaitForCachedCopy) {
         debug(`Check ${x++} of ${url}`);
 
-        let result = await backend.getBackendUrl(url);
+        let result = await backend.getUrlForRedirect(url);
 
         if (result.status === 'present') {
           debug(`${logthingy} is present`);
@@ -215,7 +216,7 @@ api.declare({
       // call with a small response, so we'll just do it here.
       // If this becomes a problem, we should use SQS to shell the
       // process out to the backend
-      await backend.expire(url);
+      await backend.purge(url);
       return res.status(204).send();
     } else {
       debug(`Region not configured for ${logthingy}`);
