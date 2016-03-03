@@ -16,7 +16,7 @@ let stream = require('stream');
 let meter = require('stream-meter');
 let SQSConsumer = require('sqs-consumer');
 let debugModule = require('debug');
-let validateInputUrl = require('./validate-url');
+let followRedirects = require('./follow-redirects');
 let _ = require('lodash');
 let assert = require('assert');
 
@@ -246,7 +246,7 @@ class CacheManager {
 
   async createUrlReadStream(rawUrl) {
     assert(rawUrl);
-    let urlInfo = await validateInputUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+    let urlInfo = await followRedirects(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
 
     let obj = request.get({
       uri: urlInfo.url,

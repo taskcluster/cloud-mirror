@@ -4,7 +4,7 @@ let request = require('request-promise').defaults({
   simple: false,
   resolveWithFullResponse: true
 });
-let debug = require('debug')('cloud-mirror:validate-url');
+let debug = require('debug')('cloud-mirror:follow-redirects');
 let assert = require('assert');
 /**
  * Follow redirects in a secure way, unless configured not to.  This function
@@ -25,7 +25,7 @@ let assert = require('assert');
  *   those.  This can be checked for after this call by using the addresses
  *   property of the resolution object.
  */
-async function validateInputUrl(firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
+async function followRedirects(firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
   // Number of redirects to follow
   let addresses = [];
 
@@ -120,4 +120,4 @@ async function validateInputUrl(firstUrl, allowedPatterns = [/.*/], redirectLimi
   throw err;
 };
 
-module.exports = validateInputUrl;
+module.exports = followRedirects;

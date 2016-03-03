@@ -54,13 +54,6 @@ class StorageProvider {
   }
 
   /**
-   * Perform any extra input validation required by the backend
-   */
-  async validateInput(rawUrl) {
-    return true;
-  }
-
-  /**
    * Take the request-promise response from an HTTP HEAD request for an object
    * in this storage provider and return a Date object which represents when
    * this object will be cleaned up from the cache

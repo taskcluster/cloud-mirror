@@ -4,7 +4,7 @@ let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
 let delayer = require('./delayer');
-let validateInputUrl = require('./validate-url');
+let followRedirects = require('./follow-redirects');
 
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
@@ -65,12 +65,12 @@ api.declare({
   debug(`Attempting to redirect to ${logthingy}`);
 
   try {
-    await validateInputUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+    await followRedirects(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
   } catch (err) {
     debug(err.stack || err);
     // Intentionally vague because we don't want to reveal
     // our configuration too much
-    let msg = 'Input URL failed validation for unknown reason';
+    let msg;
     switch (err.code) {
       case 'HTTPError':
         msg = 'HTTP Error while trying to resolve redirects';
@@ -82,6 +82,7 @@ api.declare({
         msg = 'Refusing to follow a non-SSL redirect';
         break;
       default:
+        msg = 'Input URL failed validation for unknown reason';
         break;
     }
     return res.status(400).json({
