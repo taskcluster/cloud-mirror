@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-'use strict';
 let debug = require('debug')('cloud-proxy:main');
 let base = require('taskcluster-base');
 let config = require('typed-env-config');

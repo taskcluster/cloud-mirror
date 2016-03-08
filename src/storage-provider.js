@@ -1,4 +1,3 @@
-'use strict';
 let debugModule = require('debug');
 let assert = require('assert');
 
@@ -49,7 +48,7 @@ class StorageProvider {
   /**
    * Remove an internal address from the storage provider
    */
-  async purge(internalAddress) {
+  async purge(rawUrl) {
     throw new Error('This StorageProvider implementation must implement .purge()');
   }
 
@@ -66,20 +65,8 @@ class StorageProvider {
    * A world address is what we will eventually redirect to.  This method
    * should map an internal address to a world address
    */
-  worldAddress(internalAddress) {
+  worldAddress(rawUrl) {
     throw new Error('This StorageProvider implementation must implement .worldAddress()');
-  }
-
-  /**
-   * An internal address is what we use to find this entry in the storage
-   * provider.  In the standard case, we will just URL encode the input URL and
-   * use that, but in the case a system which uses non-deterministic
-   * addressing. Another use is if we want to obscure the input URL using, we
-   * could maintain this inputUrl:internalAddress mapping in a persistent
-   * datastore and use this method to find the worldAddress
-   */
-  internalAddress(rawUrl) {
-    return encodeURIComponent(rawUrl);
   }
 }
 

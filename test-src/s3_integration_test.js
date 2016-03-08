@@ -1,5 +1,3 @@
-'use strict';
-
 let main = require('../lib/main');
 let redis = require('redis');
 let request = require('request-promise');
@@ -146,7 +144,7 @@ describe('Integration Tests', () => {
     });
 
     it('should use the storage providers url and not the original one', async () => {
-      let testUrl = httpbin + '/user-agent';
+      let testUrl = httpbin + '/html';
       let fakeUrl = 'https://www.google.com';
       let fakeGetBackendUrl = sandbox.stub(cm.CacheManager.prototype, 'getUrlForRedirect');
       fakeGetBackendUrl.returns(Promise.resolve({
@@ -194,7 +192,7 @@ describe('Integration Tests', () => {
     });
 
     it('should cache streamed url', async () => {
-      let testUrl = httpbin + '/stream/200';
+      let testUrl = httpbin + '/stream/5';
       let expected = await request(testUrl, {
         headers: {
           'Accept-Encoding': '*',

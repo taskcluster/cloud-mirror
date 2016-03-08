@@ -1,4 +1,3 @@
-'use strict';
 let debug = require('debug')('cloud-mirror:api-v1');
 let base = require('taskcluster-base');
 let taskcluster = require('taskcluster-client');
@@ -68,7 +67,7 @@ api.declare({
     await followRedirects(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
   } catch (err) {
     debug(err.stack || err);
-    // Intentionally vague because we don't want to reveal
+    // Intentionally vague because we don't want to reveafollowRedirects
     // our configuration too much
     let msg;
     switch (err.code) {

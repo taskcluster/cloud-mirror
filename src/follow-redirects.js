@@ -1,4 +1,3 @@
-'use strict';
 let request = require('request-promise').defaults({
   followRedirect: false,
   simple: false,

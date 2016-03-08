@@ -1,4 +1,3 @@
-'use strict';
 let StorageProvider = require('./storage-provider.js').StorageProvider;
 let url = require('url');
 let assert = require('assert');
@@ -95,13 +94,11 @@ class S3StorageProvider extends StorageProvider {
     assert(headers, 'must provide HTTP headers');
     assert(storageMetadata, 'must provide storage provider metadata');
 
-    let key = this.internalAddress(rawUrl);
-
     // We decode the key because the S3 library 'helpfully'
     // URL encodes this value
     let request = {
       Bucket: this.bucket,
-      Key: decodeURIComponent(key),
+      Key: rawUrl,
       Body: inputStream,
       ACL: 'public-read',
       Metadata: storageMetadata,
@@ -132,13 +129,13 @@ class S3StorageProvider extends StorageProvider {
   /**
    * StorageProvider.purge() implementation for S3
    */
-  async purge(internalAddress) {
-    this.debug(`purging ${internalAddress} from ${this.bucket}`);
+  async purge(rawUrl) {
+    this.debug(`purging ${rawUrl} from ${this.bucket}`);
     await this.s3.deleteObject({
       Bucket: this.bucket,
-      Key: internalAddress,
+      Key: rawUrl,
     }).promise();
-    this.debug(`purged ${internalAddress} from ${this.bucket}`);
+    this.debug(`purged ${rawUrl} from ${this.bucket}`);
   }
 
   /**
@@ -166,8 +163,8 @@ class S3StorageProvider extends StorageProvider {
   /**
    * Create an S3 URL for an object stored in this S3 storage provider
    */
-  worldAddress(internalAddress) {
-    assert(internalAddress);
+  worldAddress(rawUrl) {
+    assert(rawUrl);
     let s3Domain;
     if (this.region === 'us-east-1') {
       s3Domain = 's3.amazonaws.com';
@@ -180,7 +177,7 @@ class S3StorageProvider extends StorageProvider {
     return url.format({
       protocol: 'https:',
       host: host,
-      pathname: internalAddress,
+      pathname: encodeURIComponent(rawUrl),
     });
   }
 

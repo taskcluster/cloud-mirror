@@ -1,5 +1,3 @@
-'use strict';
-
 let debug = require('debug')('cloud-mirror:cache-manager');
 let urllib = require('url');
 let http = require('http');
@@ -107,7 +105,6 @@ class CacheManager {
   async put(rawUrl) {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
-    let internalAddress = this.storageProvider.internalAddress(rawUrl);
 
     let m = meter();
     m.on('error', err => {
@@ -147,7 +144,7 @@ class CacheManager {
       await this.storageProvider.put(inputUrlInfo.url, inputStream, headers, storageMetadata);
     } catch (err) {
       this.debug(`error trying to put object: ${err.stack || err}`);
-      await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, internalAddress, err.stack || err);
+      await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
       return;
     }
 
@@ -163,21 +160,14 @@ class CacheManager {
 
     this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
 
-    await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL, internalAddress);
+    await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
 
   }
 
   async getUrlForRedirect(rawUrl) {
     let cacheEntry = await this.readCacheEntry(rawUrl);
 
-    let internalAddress = this.storageProvider.internalAddress(rawUrl);
-    let worldAddress = this.storageProvider.worldAddress(internalAddress);
-
-    /*throw new Error(JSON.stringify({
-      internalAddress,
-      worldAddress,
-      cacheEntry: cacheEntry
-    }));*/
+    let worldAddress = this.storageProvider.worldAddress(rawUrl);
 
     if (!cacheEntry) {
       this.debug('cache entry not found for ' + rawUrl);
@@ -197,7 +187,7 @@ class CacheManager {
         setTTL -= 30 * 60;
 
         this.debug(`backfilling cache for ${rawUrl}`);
-        await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL), internalAddress);
+        await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
         this.debug(`backfilled cache for ${rawUrl}`);
         return {
           status: 'present',
@@ -287,12 +277,9 @@ class CacheManager {
       assert(stack);
     }
 
-    let internalAddress = this.storageProvider.internalAddress(rawUrl);
-
     let cacheEntry = {
       url: rawUrl,
       status: status,
-      internalAddress: JSON.stringify(internalAddress),
     };
 
     if (status === 'error') {
@@ -311,9 +298,6 @@ class CacheManager {
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
     let result = await this.redis.hgetallAsync(key);
-    if (result) {
-      result.internalAddress = JSON.parse(result.internalAddress);
-    }
     this.debug(`read cache entry for ${rawUrl}`);
     return result;
   }
