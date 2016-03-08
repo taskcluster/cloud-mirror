@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-let debug = require('debug')('cloud-proxy:main');
+let debugModule = require('debug');
+let debug = debugModule('cloud-proxy:main');
 let base = require('taskcluster-base');
 let config = require('typed-env-config');
 let path = require('path');
@@ -136,7 +137,15 @@ let load = base.loader({
         let bucket = cfg.backend.s3.bucketBase + cfg.server.env + '-' + region;
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
-        awsCfg.logger = process.stdout;
+        let s3Debugger = debugModule('cloud-mirror:aws:' + region);
+        let awsDebugLoggerBridge = {
+          write: x => {
+            for (let y of x.split('\n')) {
+              s3Debugger(y);
+            }
+          }
+        };
+        awsCfg.logger = awsDebugLoggerBridge;
         let s3 = new aws.S3(awsCfg);
         let storageProvider = new S3StorageProvider({
           region: region,
