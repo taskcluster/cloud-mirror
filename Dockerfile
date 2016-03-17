@@ -6,7 +6,7 @@ RUN mkdir -p /app
 WORKDIR /app
 ENV NPM_CONFIG_LOGLEVEL=warn
 COPY package.json /app/
-RUN npm install -g npm@latest
+# RUN npm install -g npm@latest
 RUN npm install .
 COPY . /app/
 
