@@ -44,18 +44,42 @@ class CacheManager {
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+
+    this.putQueueNameDead = this.putQueueName + '_dead';
   }
 
   async init() {
+    // First, we'll create the dead letter queue
+    let awsRes = await this.sqs.createQueue({
+      QueueName: this.putQueueNameDead,
+    }).promise();
+    this.putQueueDeadUrl = awsRes.data.QueueUrl;
+    this.debug('sqs put queue dead url: ' + this.putQueueDeadUrl);
+
+    // Now we'll find the dead letter put queue's ARN
+    awsRes = await this.sqs.getQueueAttributes({
+      QueueUrl: this.putQueueDeadUrl,
+      AttributeNames: ['QueueArn'],
+    }).promise();
+    let putQueueDeadArn = awsRes.data.Attributes.QueueArn;
+    this.debug('sqs put queue dead arn: ' + putQueueDeadArn);
+
+    // First, we'll create the Queue
     this.debug('creating sqs put queue');
-    let data = await this.sqs.createQueue({
+    awsRes = await this.sqs.createQueue({
       QueueName: this.putQueueName,
+      Attributes: {
+        RedrivePolicy: JSON.stringify({
+          maxReceiveCount: 5,
+          deadLetterTargetArn: putQueueDeadArn,
+        }),
+      },
     }).promise();
     this.debug('created sqs put queue');
-
-    this.putQueueUrl = data.data.QueueUrl;
+    this.putQueueUrl = awsRes.data.QueueUrl;
     this.debug('sqs put queue url: ' + this.putQueueUrl);
 
+    // Create consumer
     this.consumer = SQSConsumer.create({
       queueUrl: this.putQueueUrl,
       batchSize: this.sqsBatchSize,

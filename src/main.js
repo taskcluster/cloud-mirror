@@ -160,7 +160,7 @@ let load = base.loader({
         await storageProvider.init();
 
         let cacheManager = new CacheManager({
-          putQueueName: `S3-${region}-put-request`,
+          putQueueName: `S3-${region}-${profile}-put-request`,
           allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
           cacheTTL: cfg.backend.cacheTTL,
           redis: redis,
