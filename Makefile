@@ -16,15 +16,15 @@ build-docker-image:
 push-docker-image: #build-docker-image
 	docker pull tutum/haproxy
 	docker pull tutum/redis
-	docker tag -f tutum/haproxy:latest tutum.co/taskcluster/haproxy:latest
-	docker push tutum.co/taskcluster/haproxy:latest
-	docker tag -f tutum/redis:latest tutum.co/taskcluster/redis:latest
-	docker push tutum.co/taskcluster/redis:latest
+	docker tag -f tutum/haproxy:latest taskcluster/haproxy:latest
+	docker push taskcluster/haproxy:latest
+	docker tag -f tutum/redis:latest taskcluster/redis:latest
+	docker push taskcluster/redis:latest
 	docker tag -f cloud-mirror:latest cloud-mirror:$(TAG)
-	docker tag -f cloud-mirror:$(TAG) tutum.co/taskcluster/cloud-mirror:$(TAG)
-	docker tag -f cloud-mirror:latest tutum.co/taskcluster/cloud-mirror:latest
-	docker push tutum.co/taskcluster/cloud-mirror:latest
-	docker push tutum.co/taskcluster/cloud-mirror:$(TAG)
+	docker tag -f cloud-mirror:$(TAG) taskcluster/cloud-mirror:$(TAG)
+	docker tag -f cloud-mirror:latest taskcluster/cloud-mirror:latest
+	docker push taskcluster/cloud-mirror:latest
+	docker push taskcluster/cloud-mirror:$(TAG)
 
 .PHONY: clean-all-docker
 clean-all-docker:
