@@ -86,12 +86,11 @@ class CacheManager {
       handleMessage: function(message, done) {
         if (message.Body) {
           let body;
-
           try {
             body = JSON.parse(message.Body);
           } catch (err) {
             this.debug(`error parsing ${message.Body}: ${err.stack || err}`);
-            done(err);
+            return done(err);
           }
 
           this.debug(`received put request for ${body.url}`);
@@ -110,6 +109,7 @@ class CacheManager {
 
         } else {
           this.debug('received empty sqs message, ignoring');
+          return done(new Error('no body present on sqs message'));
         }
       }.bind(this),
       sqs: this.sqs,
@@ -322,6 +322,7 @@ class CacheManager {
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
     let result = await this.redis.hgetallAsync(key);
+    assert(_.includes(CACHE_STATES, result.status));
     this.debug(`read cache entry for ${rawUrl}`);
     return result;
   }
