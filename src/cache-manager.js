@@ -130,62 +130,66 @@ class CacheManager {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
 
-    let m = meter();
-    m.on('error', err => {
-      this.debug(`error from stream-meter ${err.stack || err}`);
-    });
-
-    this.debug(`creating read stream for ${rawUrl}`);
-    let inputUrlInfo = await this.createUrlReadStream(rawUrl);
-    this.debug(`created read stream for ${rawUrl}`);
-
-    let inputStream = inputUrlInfo.stream;
-
-    // We need the following pieces of information in the service-specific
-    // implementations
-    let contentType = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-type')];
-    contentType = contentType || 'application/octet-stream';
-    let upstreamEtag = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('etag')];
-    upstreamEtag = upstreamEtag || '';
-    let contentEncoding = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-encoding')];
-    let contentDisposition = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-disposition')];
-
-    let headers = {
-      'Content-Type': contentType,
-      'Content-Disposition': contentDisposition,
-      'Content-Encoding': contentEncoding,
-    };
-
-    let storageMetadata = {
-      'upstream-etag': upstreamEtag,
-      url: rawUrl,
-      stored: new Date().toISOString(),
-      addresses: JSON.stringify(inputUrlInfo.addresses),
-    };
-
-    let startTime = new Date();
+    // Tell others that we're working on this url
+    await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
+    
+    // Basically, any error here should do the same thing: pring the exception
+    // in our logs then set the cache entry to status === 'error'
     try {
+      let m = meter();
+      m.on('error', err => {
+        this.debug(`error from stream-meter ${err.stack || err}`);
+      });
+
+      this.debug(`creating read stream for ${rawUrl}`);
+      let inputUrlInfo = await this.createUrlReadStream(rawUrl);
+      this.debug(`created read stream for ${rawUrl}`);
+
+      let inputStream = inputUrlInfo.stream;
+
+      // We need the following pieces of information in the service-specific
+      // implementations
+      let contentType = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-type')];
+      contentType = contentType || 'application/octet-stream';
+      let upstreamEtag = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('etag')];
+      upstreamEtag = upstreamEtag || '';
+      let contentEncoding = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-encoding')];
+      let contentDisposition = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-disposition')];
+
+      let headers = {
+        'Content-Type': contentType,
+        'Content-Disposition': contentDisposition,
+        'Content-Encoding': contentEncoding,
+      };
+
+      let storageMetadata = {
+        'upstream-etag': upstreamEtag,
+        url: rawUrl,
+        stored: new Date().toISOString(),
+        addresses: JSON.stringify(inputUrlInfo.addresses),
+      };
+
+      let startTime = new Date();
+
       await this.storageProvider.put(inputUrlInfo.url, inputStream, headers, storageMetadata);
+
+      let duration = new Date() - startTime;
+
+      // Here's a datapoint when we have metrics
+      let dataPoint = {
+        id: this.id,
+        url: rawUrl,
+        duration: duration,
+        fileSize: m.bytes,
+      };
+
+      this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
+
+      await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
+
     } catch (err) {
-      this.debug(`error trying to put object: ${err.stack || err}`);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
-      return;
     }
-
-    let duration = new Date() - startTime;
-
-    // Here's a datapoint when we have metrics
-    let dataPoint = {
-      id: this.id,
-      url: rawUrl,
-      duration: duration,
-      fileSize: m.bytes,
-    };
-
-    this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
-
-    await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
-
   }
 
   async getUrlForRedirect(rawUrl) {
