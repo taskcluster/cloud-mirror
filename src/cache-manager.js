@@ -106,7 +106,6 @@ class CacheManager {
             this.debug(`error handling put request ${err.stack || err}`);
             done(err);
           });
-
         } else {
           this.debug('received empty sqs message, ignoring');
           return done(new Error('no body present on sqs message'));
@@ -334,6 +333,7 @@ class CacheManager {
   async requestPut(rawUrl) {
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
+    await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
     await this.sqs.sendMessage({
       QueueUrl: this.putQueueUrl,
       MessageBody: JSON.stringify({
