@@ -64,7 +64,7 @@ class CacheManager {
     let putQueueDeadArn = awsRes.data.Attributes.QueueArn;
     this.debug('sqs put queue dead arn: ' + putQueueDeadArn);
 
-    // First, we'll create the Queue
+    // Now, we'll create the real queue
     this.debug('creating sqs put queue');
     awsRes = await this.sqs.createQueue({
       QueueName: this.putQueueName,
