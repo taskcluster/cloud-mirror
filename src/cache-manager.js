@@ -131,7 +131,7 @@ class CacheManager {
 
     // Tell others that we're working on this url
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
-    
+
     // Basically, any error here should do the same thing: pring the exception
     // in our logs then set the cache entry to status === 'error'
     try {
@@ -154,11 +154,13 @@ class CacheManager {
       upstreamEtag = upstreamEtag || '';
       let contentEncoding = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-encoding')];
       let contentDisposition = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-disposition')];
+      let contentMD5 = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-md5')];
 
       let headers = {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
         'Content-Encoding': contentEncoding,
+        'Content-MD5': contentMD5,
       };
 
       let storageMetadata = {
@@ -325,7 +327,9 @@ class CacheManager {
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
     let result = await this.redis.hgetallAsync(key);
-    assert(_.includes(CACHE_STATES, result.status));
+    if (result) {
+      assert(_.includes(CACHE_STATES, result.status));
+    }
     this.debug(`read cache entry for ${rawUrl}`);
     return result;
   }

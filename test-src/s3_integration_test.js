@@ -6,6 +6,7 @@ let zlib = require('zlib');
 let _aws = require('aws-sdk-promise');
 let _ = require('lodash');
 let sinon = require('sinon');
+let uuid = require('uuid');
 
 let debug = require('debug')('s3-integration-tests');
 
@@ -15,15 +16,14 @@ let cm = require('../lib/cache-manager');
 let sp = require('../lib/storage-provider');
 let s3sp = require('../lib/s3-storage-provider');
 
-async function deleteBucketRecursively(cfg) {
+async function deleteBucketRecursively(awsCfg, bucket) {
   debug('Deleting test bucket');
 
-  let aws = new _aws.S3(_.omit(cfg.aws, 'region'));
-  let testBucket = cfg.backend.s3.bucketBase + cfg.server.env + '-us-west-1';
+  let aws = new _aws.S3(_.omit(awsCfg, 'region'));
 
   let x;
   try {
-    let y = await aws.headBucket({Bucket: testBucket}).promise();
+    let y = await aws.headBucket({Bucket: bucket}).promise();
     if (Object.keys(y.data).length === 0) {
       y = false;
     } else {
@@ -37,7 +37,7 @@ async function deleteBucketRecursively(cfg) {
     return;
   }
 
-  let objs = await aws.listObjects({Bucket: testBucket}).promise();
+  let objs = await aws.listObjects({Bucket: bucket}).promise();
 
   objs = objs.data.Contents.map(x => {
     return {
@@ -46,14 +46,14 @@ async function deleteBucketRecursively(cfg) {
   });
 
   objs = {
-    Bucket: testBucket,
+    Bucket: bucket,
     Delete: {
       Objects: objs,
     },
   };
 
   await aws.deleteObjects(objs).promise();
-  await aws.deleteBucket({Bucket: testBucket}).promise();
+  await aws.deleteBucket({Bucket: bucket}).promise();
   debug('Finished deleting test bucket');
 }
 
@@ -62,30 +62,27 @@ describe('Integration Tests', () => {
   let redis;
   let baseUrl;
   let cfg;
-  let testBucket;
   let sandbox;
 
   before(async () => {
-    cfg = await main('cfg', {process: 'cfg', profile: 'development'});
-    await deleteBucketRecursively(cfg);
+    cfg = await main('cfg', {process: 'cfg', profile: 'test'});
   });
 
   beforeEach(async () => {
-    redis = await main('redis', {process: 'redis', profile: 'development'});
+    redis = await main('redis', {process: 'redis', profile: 'test'});
     baseUrl = cfg.server.publicUrl + '/v1';
     await redis.flushdb();
     sandbox = sinon.sandbox.create();
   });
 
   afterEach(async () => {
-    //await deleteBucketRecursively(cfg);
     sandbox.restore();
   });
 
   it('should be able to start api server', async function() {
     let server = await main('server', {
       process: 'server',
-      profile: 'development',
+      profile: 'test',
     });
     return server.terminate();
   });
@@ -93,7 +90,7 @@ describe('Integration Tests', () => {
   it('should be able to start and stop listening backends', async function() {
     let backends = await main('listeningS3Backends', {
       process: 'listeningS3Backends',
-      profile: 'development',
+      profile: 'test',
     });
 
     await backends['us-west-1'].stopListeningToPutQueue();
@@ -106,11 +103,11 @@ describe('Integration Tests', () => {
     before(async () => {
       server = await main('server', {
         process: 'server',
-        profile: 'development',
+        profile: 'test',
       });
       backend = await main('listeningS3Backends', {
         process: 'server',
-        profile: 'development',
+        profile: 'test',
       });
       backend = backend['us-west-1'];
     });
@@ -118,6 +115,7 @@ describe('Integration Tests', () => {
     after(async () => {
       server.terminate();
       await backend.stop;
+      await deleteBucketRecursively(cfg.aws, backend.storageProvider.bucket);
     });
 
     beforeEach(async () => {
@@ -135,8 +133,9 @@ describe('Integration Tests', () => {
       });
       //throw new Error(JSON.stringify(actual));
       let bodyJson = JSON.parse(actual.body);
-      assume(bodyJson.url).equals('https://cloud-mirror-development-us-west-1.' +
-          's3-us-west-1.amazonaws.com/https%3A%2F%2Fhttpbin.org%2Fip');
+      let realBucket = backend.storageProvider.bucket;
+      assume(bodyJson.url).equals('https://' + realBucket +
+          '.s3-us-west-1.amazonaws.com/https%3A%2F%2Fhttpbin.org%2Fip');
       let actual1 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       let actual2 = await request(baseUrl + '/redirect/s3/us-west-1/' + encodeURIComponent(testUrl));
       assume(JSON.parse(actual1)).deeply.equals(JSON.parse(expected));

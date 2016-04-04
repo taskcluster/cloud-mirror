@@ -7,6 +7,7 @@ let path = require('path');
 let _ = require('lodash');
 let assert = require('assert');
 let taskcluster = require('taskcluster-client');
+let uuid = require('uuid');
 
 let aws = require('aws-sdk-promise');
 let CacheManager = require('./cache-manager').CacheManager;
@@ -19,6 +20,8 @@ bluebird.promisifyAll(redis.Multi.prototype);
 
 //let exchanges = require('./exchanges');
 let v1 = require('./api-v1');
+
+let testBucket;
 
 // Create component loader
 let load = base.loader({
@@ -134,10 +137,19 @@ let load = base.loader({
       let regions = cfg.backend.s3.regions.split(',');
 
       for (let region of regions) {
-        let bucket = cfg.backend.s3.bucketBase + cfg.server.env + '-' + region;
+        let bucket;
+        if (profile === 'test') {
+          if (!testBucket) {
+            testBucket = uuid.v4().replace(/-/g, '');
+          }
+          bucket = testBucket;
+        } else {
+          bucket = cfg.backend.s3.bucketBase + cfg.server.env + '-' + region;
+        }
+
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
-        let s3Debugger = debugModule('cloud-mirror:aws:' + region);
+        let s3Debugger = debugModule('cloud-mirror:aws-s3:' + region);
         let awsDebugLoggerBridge = {
           write: x => {
             for (let y of x.split('\n')) {
