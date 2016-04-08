@@ -160,7 +160,7 @@ describe('Integration Tests', () => {
       });
 
       assume(actual.statusCode).equals(302);
-      assume(actual.headers[actual.caseless.has('location')]).equals(fakeUrl);
+      assume(actual.headers['location']).equals(fakeUrl);
     });
 
     it('should cache a gzip url', async () => {
@@ -245,7 +245,7 @@ describe('Integration Tests', () => {
       });
 
       assume(actual.statusCode).equals(302);
-      assume(actual.headers[actual.caseless.has('location')]).equals(testUrl);
+      assume(actual.headers['location']).equals(testUrl);
     });
 
     it('should redirect to original url if there is an error while caching', async () => {
@@ -264,7 +264,7 @@ describe('Integration Tests', () => {
       });
 
       assume(actual.statusCode).equals(302);
-      assume(actual.headers[actual.caseless.has('location')]).equals(testUrl);
+      assume(actual.headers['location']).equals(testUrl);
     });
 
     it('should parse the s3 expiration header correctly', async () => {

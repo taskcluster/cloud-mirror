@@ -102,8 +102,8 @@ async function followRedirects(firstUrl, allowedPatterns = [/.*/], redirectLimit
       };
     } else if (sc >= 300 && sc < 400 && sc !== 304 && sc !== 305) {
       // 304 and 305 are not redirects
-      assert(result.caseless.has('location'));
-      let newU = result.headers[result.caseless.has('location')];
+      assert(result.headers.location);
+      let newU = result.headers.location;
       newU = url.resolve(u, newU);
       u = url.resolve(u, newU);
     } else {

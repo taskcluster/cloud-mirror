@@ -27,9 +27,9 @@ def rewriteUrl(inputUrl):
 # Overview of design
 
 Cloud mirror is implemented as an API front end which serves redirects and back
-ends.  The front and back ends communicate through a redis cache.  It is
-important to note that redis is being used as a cache and not data storage.
-The most important front end method is the
+ends.  The front and back ends communicate through SQS and use a redis cache.
+It is important to note that redis is being used as a cache and not data
+storage.  The most important front end method is the
 `/v1/redirect/:service/:region/:base64(urL)` method.  This is the method that
 the final consumer should use in place of the original url.  On receiving a
 request for the `/redirect/` method, the front end will check if the redis
@@ -79,7 +79,7 @@ Contributions are very welcome and we're happy.  Cloud-mirror is primiarily
 developed by John Ford who can be found in `#taskcluster` on `irc.mozilla.org`
 as `jhford`.  There are unit tests which should pass on your contribution as
 well as an eslint configuration which declares the coding style for this
-repostiory.  We use the `babel` javascript transformation toolkit to support
+repository.  We use the `babel` javascript transformation toolkit to support
 modern javascript.  Where possible, we use the `async` and `await` keywords to
 make our async promises easier to work with.  This is strongly preferred in
 contributions.  We also like to use `lodash` where javascript standards haven't
@@ -99,3 +99,7 @@ latest version from the tutum team.  We do not store the stack file in the
 repository because it might contain secret data.  We hope that one day, the
 docker cloud team will implement a feature which lets us use something to
 redirect configuration values to a private values file.
+
+# Troubleshooting and Deploying
+
+Building a new version of the docker image for cloud-mirror should be 

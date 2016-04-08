@@ -84,32 +84,32 @@ class CacheManager {
       queueUrl: this.putQueueUrl,
       batchSize: this.sqsBatchSize,
       handleMessage: function(message, done) {
-        if (message.Body) {
-          let body;
-          try {
-            body = JSON.parse(message.Body);
-          } catch (err) {
-            this.debug(`error parsing ${message.Body}: ${err.stack || err}`);
-            return done(err);
-          }
-
-          this.debug(`received put request for ${body.url}`);
-
-          let p = this.put.call(this, body.url);
-
-          p = p.then(() => {
-            this.debug(`completed put request for ${body.url}`);
-            done();
-          });
-
-          p.catch(err => {
-            this.debug(`error handling put request ${err.stack || err}`);
-            done(err);
-          });
-        } else {
+        if (!message.Body) {
           this.debug('received empty sqs message, ignoring');
           return done(new Error('no body present on sqs message'));
         }
+
+        let body;
+        try {
+          body = JSON.parse(message.Body);
+        } catch (err) {
+          this.debug(`error parsing ${message.Body}: ${err.stack || err}`);
+          return done(err);
+        }
+
+        this.debug(`received put request for ${body.url}`);
+
+        let p = this.put.call(this, body.url);
+
+        p = p.then(() => {
+          this.debug(`completed put request for ${body.url}`);
+          done();
+        });
+
+        p.catch(err => {
+          this.debug(`error handling put request ${err.stack || err}`);
+          done(err);
+        });
       }.bind(this),
       sqs: this.sqs,
     });
@@ -148,13 +148,13 @@ class CacheManager {
 
       // We need the following pieces of information in the service-specific
       // implementations
-      let contentType = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-type')];
+      let contentType = inputUrlInfo.meta.headers['content-type'];
       contentType = contentType || 'application/octet-stream';
-      let upstreamEtag = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('etag')];
+      let upstreamEtag = inputUrlInfo.meta.headers['etag'];
       upstreamEtag = upstreamEtag || '';
-      let contentEncoding = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-encoding')];
-      let contentDisposition = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-disposition')];
-      let contentMD5 = inputUrlInfo.meta.headers[inputUrlInfo.meta.caseless.has('content-md5')];
+      let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
+      let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
+      let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
 
       let headers = {
         'Content-Type': contentType,

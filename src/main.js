@@ -141,6 +141,8 @@ let load = base.loader({
         if (profile === 'test') {
           if (!testBucket) {
             testBucket = uuid.v4().replace(/-/g, '');
+            // Prefix for easy cleanup
+            testBucket = 'cloud-mirror-test-' + testBucket;
           }
           bucket = testBucket;
         } else {
