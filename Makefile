@@ -16,13 +16,13 @@ build-docker-image:
 push-docker-image: #build-docker-image
 	docker pull tutum/haproxy
 	docker pull tutum/redis
-	docker tag -f tutum/haproxy:latest taskcluster/haproxy:latest
+	docker tag tutum/haproxy:latest taskcluster/haproxy:latest
 	docker push taskcluster/haproxy:latest
-	docker tag -f tutum/redis:latest taskcluster/redis:latest
+	docker tag tutum/redis:latest taskcluster/redis:latest
 	docker push taskcluster/redis:latest
-	docker tag -f cloud-mirror:latest cloud-mirror:$(TAG)
-	docker tag -f cloud-mirror:$(TAG) taskcluster/cloud-mirror:$(TAG)
-	docker tag -f cloud-mirror:latest taskcluster/cloud-mirror:latest
+	docker tag cloud-mirror:latest cloud-mirror:$(TAG)
+	docker tag cloud-mirror:$(TAG) taskcluster/cloud-mirror:$(TAG)
+	docker tag cloud-mirror:latest taskcluster/cloud-mirror:latest
 	docker push taskcluster/cloud-mirror:latest
 	docker push taskcluster/cloud-mirror:$(TAG)
 
