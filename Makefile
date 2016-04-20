@@ -3,6 +3,8 @@ REV=$(shell git rev-parse --revs-only --short --verify HEAD)
 DATE=$(shell date +%Y-%m-%d)
 TAG=$(VERSION)-$(DATE)-$(REV)
 
+HAPROXY_VER := 1.2.1
+
 .PHONY: build
 build:
 	npm run compile
@@ -14,10 +16,10 @@ build-docker-image:
 
 .PHONY: push-docker-image
 push-docker-image: #build-docker-image
-	docker pull tutum/haproxy
+	docker pull dockercloud/haproxy:$(HAPROXY_VER)
 	docker pull tutum/redis
-	docker tag tutum/haproxy:latest taskcluster/haproxy:latest
-	docker push taskcluster/haproxy:latest
+	docker tag dockercloud/haproxy:$(HAPROXY_VER) taskcluster/haproxy:$(HAPROXY_VER)
+	docker push taskcluster/haproxy:$(HAPROXY_VER)
 	docker tag tutum/redis:latest taskcluster/redis:latest
 	docker push taskcluster/redis:latest
 	docker tag cloud-mirror:latest cloud-mirror:$(TAG)
