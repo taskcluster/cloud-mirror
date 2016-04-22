@@ -70,100 +70,106 @@ api.declare({
     // Intentionally vague because we don't want to reveafollowRedirects
     // our configuration too much
     let msg;
+    let code = 503; // default is that something is temporarily wrong
     switch (err.code) {
-      case 'HTTPError':
-        msg = 'HTTP Error while trying to resolve redirects';
-        break;
       case 'DoesNotMatchPatterns':
         msg = 'Input URL does not match whitelist';
+        code = 403; // forbidden
         break;
       case 'InsecureURL':
         msg = 'Refusing to follow a non-SSL redirect';
+        code = 403; // forbidden
+        break;
+      case 'HTTPError':
+        msg = 'HTTP Error while trying to resolve redirects';
         break;
       default:
         msg = 'Input URL failed validation for unknown reason';
         break;
     }
-    return res.status(400).json({
+    return res.status(code).json({
       msg: msg,
+      code: code,
     });
   }
 
-  if (service.toLowerCase() === 's3') {
-    if (this.s3backends[region]) {
-      let backend = this.s3backends[region];
+  // This is the ID that we need to find a backend for
+  let incomingId = `${service}_${region}`;
+  
+  // Let's pick which backend to use.  In this case, we're looking to find the
+  // only backend known that matches the potential id
+  let backends = this.cacheManagers.filter(x => x.id === incomingId);
+  if (backends.length > 1) {
+    debug('API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
+    // Because this should never ever happen
+    process.exit(-1);
+  } else if (backends.length === 0) {
+    debug(`${incomingId} is not known`);
+    return res.status(404).json({
+      msg: `${incomingId} is not known`,
+    });
+  } else {
+    let backend = backends[0];
+    let maxWait = this.maxWaitForCachedCopy;
+    let startTime = new Date();
+    let x = 0;
 
-      let maxWaitForCachedCopy = this.maxWaitForCachedCopy;
+    while (new Date() - startTime < maxWait) {
+      debug(`Check ${x++} of ${url}`);
 
-      let startTime = new Date();
-      let x = 0;
-      while (new Date() - startTime < maxWaitForCachedCopy) {
-        debug(`Check ${x++} of ${url}`);
+      let result = await backend.getUrlForRedirect(url);
 
-        let result = await backend.getUrlForRedirect(url);
+      if (result.status === 'present') {
+        debug(`${logthingy} is present`);
+        res.status(302);
+        res.location(result.url);
 
-        if (result.status === 'present') {
-          debug(`${logthingy} is present`);
-          res.status(302);
-          res.location(result.url);
+        // Instead of just returning result object, we want to return only
+        // known properties.  This is to avoid possible leakage
+        let datapoint = {
+          url: url,
+          service: service,
+          region: region,
+        };
 
-          // Instead of just returning result object, we want to return only
-          // known properties.  This is to avoid possible leakage
-          let datapoint = {
-            url: url,
-            service: service,
-            region: region,
-          };
-
-          debug(`Found ${url}`);
-          return res.json({
-            status: result.status,
-            url: result.url,
-          });
-        } else if (result.status === 'error') {
-          debug('Redirecting uncached copy because error occured during caching');
-          debug(result.stack || 'unknown error');
-          res.status(302);
-          res.location(url);
-          return res.json({
-            url: url,
-            msg: 'Error caching file, redirecting to original',
-          });
-        }
-
-        // When we have Influx set up, let's submit this datapoint
-        // to a series called 'Cloud Mirror Cache Hits'
-        await delayer(1000);
+        debug(`Found ${url}`);
+        return res.json({
+          status: result.status,
+          url: result.url,
+        });
+      } else if (result.status === 'error') {
+        debug('Redirecting uncached copy because error occured during caching');
+        debug(result.stack || 'unknown error');
+        res.status(302);
+        res.location(url);
+        return res.json({
+          url: url,
+          msg: 'Error caching file, redirecting to original',
+        });
       }
 
-      // If we get here, we're doing the fallback of redirecting
-      // to the original URL because the caching took too long
-      debug(`Redirecting to uncached copy because it took too long ${url}`);
-      res.status(302);
-      res.location(url);
-
       // When we have Influx set up, let's submit this datapoint
-      // to a series called 'Cloud Mirror Cache Misses'
-      let datapoint = {
-        url: url,
-        service: service,
-        region: region,
-      };
-
-      return res.json({
-        url: url,
-        msg: `Cached copy did not show up in ${maxWaitForCachedCopy/1000}s`,
-      });
-    } else {
-      debug(`Region not configured for ${logthingy}`);
-      return res.status(400).json({
-        msg: `Region ${region} is not configured for ${service}`,
-      });
+      // to a series called 'Cloud Mirror Cache Hits'
+      await delayer(1000);
     }
-  } else {
-    debug(`Service not known for ${logthingy}`);
-    return res.status(400).json({
-      msg: `Service ${service} is not known`,
+
+    // If we get here, we're doing the fallback of redirecting
+    // to the original URL because the caching took too long
+    debug(`Redirecting to uncached copy because it took too long ${url}`);
+    res.status(302);
+    res.location(url);
+
+    // When we have Influx set up, let's submit this datapoint
+    // to a series called 'Cloud Mirror Cache Misses'
+    let datapoint = {
+      url: url,
+      service: service,
+      region: region,
+    };
+
+    return res.json({
+      url: url,
+      msg: `Cached copy did not show up in ${maxWait/1000}s`,
     });
   }
 });
@@ -207,28 +213,25 @@ api.declare({
 
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to purge ${logthingy}`);
-
-  if (service.toLowerCase() === 's3') {
-    if (this.s3backends[region]) {
-      let backend = this.s3backends[region];
-      // NOTE: Currently this just does the S3 api call to delete
-      // the object in the webserver's response.  This is a small
-      // call with a small response, so we'll just do it here.
-      // If this becomes a problem, we should use SQS to shell the
-      // process out to the backend
-      await backend.purge(url);
-      return res.status(204).send();
-    } else {
-      debug(`Region not configured for ${logthingy}`);
-      return res.status(400).json({
-        msg: `Region ${region} is not configured for ${service}`,
-      });
-    }
-  } else {
-    debug(`Service not known for ${logthingy}`);
-    return res.status(400).json({
-      msg: `Service ${service} is not known`,
+  // This is the ID that we need to find a backend for
+  let incomingId = `${service}-${region}`;
+  
+  // Let's pick which backend to use.  In this case, we're looking to find the
+  // only backend known that matches the potential id
+  let backends = this.cacheManagers.filter(x => x.id === id);
+  if (backends.length > 1) {
+    debug('API server is misconfigured and has more than one cachemanager with id, crashing' + id);
+    // Because this should never ever happen
+    process.exit(-1);
+  } else if (backends.length === 0) {
+    debug(`${incomingId} is not known`);
+    return res.status(404).json({
+      msg: `${incomingId} is not known`,
     });
+  } else {
+    let backend = backends[0];
+    await backend.purge(url);
+    return res.status(204).send();
   }
 });
 
@@ -242,7 +245,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function(req, res) {
+}, function (req, res) {
   res.status(200).json({
     alive: true,
     uptime: process.uptime(),
@@ -259,7 +262,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function(req, res) {
+}, function (req, res) {
   let host = req.get('host');
   let proto = req.connection.encrypted ? 'https' : 'http';
   res.status(200).json(api.reference({

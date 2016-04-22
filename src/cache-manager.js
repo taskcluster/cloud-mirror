@@ -4,7 +4,7 @@ let http = require('http');
 let requestPromise = require('request-promise').defaults({
   followRedirect: false,
   simple: false,
-  resolveWithFullResponse: true
+  resolveWithFullResponse: true,
 });
 let request = require('request').defaults({
   followRedirect: false,
@@ -21,13 +21,11 @@ let assert = require('assert');
 const CACHE_STATES = ['present', 'pending', 'error'];
 
 class CacheManager {
-  constructor(config) {
+  constructor (config) {
     for (let x of [
-      'putQueueName', // SQS queue to listen on for copy requests
       'allowedPatterns', // Regular expressions to validate input urls
       'cacheTTL', // Number of seconds to keep URL in the cache
       'redis', // Redis object where we should cache metadata
-      'sqs', // SQS Instance to listen and publish on
       'ensureSSL', // true if we should force only HTTP in redirect links
       'storageProvider', // StorageProvider instance to manage
     ]) {
@@ -38,94 +36,22 @@ class CacheManager {
     // Maximum number of redirects to follow
     this.redirectLimit = config.redirectLimit || 30;
 
-    // Maximum number of concurrent messages to process
-    this.sqsBatchSize = config.sqsBatchSize || 10;
+    this.queues = [];
+    let queues = config.queues || [];
+    queues.forEach(queue => {
+      this.registerQueue(queue);
+    });
 
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
-
-    this.putQueueNameDead = this.putQueueName + '_dead';
   }
 
-  async init() {
-    // First, we'll create the dead letter queue
-    let awsRes = await this.sqs.createQueue({
-      QueueName: this.putQueueNameDead,
-    }).promise();
-    this.putQueueDeadUrl = awsRes.data.QueueUrl;
-    this.debug('sqs put queue dead url: ' + this.putQueueDeadUrl);
-
-    // Now we'll find the dead letter put queue's ARN
-    awsRes = await this.sqs.getQueueAttributes({
-      QueueUrl: this.putQueueDeadUrl,
-      AttributeNames: ['QueueArn'],
-    }).promise();
-    let putQueueDeadArn = awsRes.data.Attributes.QueueArn;
-    this.debug('sqs put queue dead arn: ' + putQueueDeadArn);
-
-    // Now, we'll create the real queue
-    this.debug('creating sqs put queue');
-    awsRes = await this.sqs.createQueue({
-      QueueName: this.putQueueName,
-      Attributes: {
-        RedrivePolicy: JSON.stringify({
-          maxReceiveCount: 5,
-          deadLetterTargetArn: putQueueDeadArn,
-        }),
-      },
-    }).promise();
-    this.debug('created sqs put queue');
-    this.putQueueUrl = awsRes.data.QueueUrl;
-    this.debug('sqs put queue url: ' + this.putQueueUrl);
-
-    // Create consumer
-    this.consumer = SQSConsumer.create({
-      queueUrl: this.putQueueUrl,
-      batchSize: this.sqsBatchSize,
-      handleMessage: function(message, done) {
-        if (!message.Body) {
-          this.debug('received empty sqs message, ignoring');
-          return done(new Error('no body present on sqs message'));
-        }
-
-        let body;
-        try {
-          body = JSON.parse(message.Body);
-        } catch (err) {
-          this.debug(`error parsing ${message.Body}: ${err.stack || err}`);
-          return done(err);
-        }
-
-        this.debug(`received put request for ${body.url}`);
-
-        let p = this.put.call(this, body.url);
-
-        p = p.then(() => {
-          this.debug(`completed put request for ${body.url}`);
-          done();
-        });
-
-        p.catch(err => {
-          this.debug(`error handling put request ${err.stack || err}`);
-          done(err);
-        });
-      }.bind(this),
-      sqs: this.sqs,
-    });
+  // Stub for now
+  async init () {
   }
 
-  startListeningToPutQueue() {
-    this.debug('listneing to put queue ' + this.putQueueName);
-    this.consumer.start();
-  }
-
-  stopListeningToPutQueue() {
-    this.debug('no longer listneing to put queue ' + this.putQueueName);
-    this.consumer.stop();
-  }
-
-  async put(rawUrl) {
+  async put (rawUrl) {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
 
@@ -172,7 +98,7 @@ class CacheManager {
 
       let startTime = new Date();
 
-      await this.storageProvider.put(inputUrlInfo.url, inputStream, headers, storageMetadata);
+      await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
 
       let duration = new Date() - startTime;
 
@@ -189,11 +115,12 @@ class CacheManager {
       await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
 
     } catch (err) {
+      this.debug(`error putting ${rawUrl}: ${err.stack || err}`);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
     }
   }
 
-  async getUrlForRedirect(rawUrl) {
+  async getUrlForRedirect (rawUrl) {
     let cacheEntry = await this.readCacheEntry(rawUrl);
 
     let worldAddress = this.storageProvider.worldAddress(rawUrl);
@@ -224,7 +151,7 @@ class CacheManager {
         };
       } else {
         this.debug(`did not find ${rawUrl} in cache, inserting`);
-        this.requestPut(rawUrl);
+        await this.requestPut(rawUrl);
         return {
           status: 'pending',
           url: worldAddress,
@@ -242,7 +169,7 @@ class CacheManager {
       };
     } else if (cacheEntry.status === 'error') {
       this.debug(`previous status was error: ${cacheEntry.stack}`);
-      this.requestPut(rawUrl);
+      await this.requestPut(rawUrl);
       return {
         status: 'pending',
         url: worldAddress,
@@ -253,7 +180,7 @@ class CacheManager {
 
   }
 
-  async purge(rawUrl) {
+  async purge (rawUrl) {
     assert(rawUrl);
     this.debug(`removing ${rawUrl} from storageProvider`);
     await this.storageProvider.purge(rawUrl);
@@ -263,7 +190,7 @@ class CacheManager {
     this.debug(`removed cache entry for ${rawUrl}`);
   }
 
-  async createUrlReadStream(rawUrl) {
+  async createUrlReadStream (rawUrl) {
     assert(rawUrl);
     let urlInfo = await followRedirects(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
 
@@ -293,11 +220,11 @@ class CacheManager {
     };
   }
 
-  cacheKey(rawUrl) {
+  cacheKey (rawUrl) {
     return this.id + '_' + encodeURIComponent(rawUrl);
   }
 
-  async insertCacheEntry(rawUrl, status, ttl, stack) {
+  async insertCacheEntry (rawUrl, status, ttl, stack) {
     assert(rawUrl);
     assert(status);
     assert(ttl);
@@ -322,7 +249,7 @@ class CacheManager {
       .execAsync();
   }
 
-  async readCacheEntry(rawUrl) {
+  async readCacheEntry (rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
@@ -334,20 +261,27 @@ class CacheManager {
     return result;
   }
 
-  async requestPut(rawUrl) {
+  registerQueue (queueManager) {
+    this.queues.push(queueManager);
+  }
+
+  async requestPut (rawUrl) {
+    if (this.queues.length < 1) {
+      throw new Error('Must have at least one Queue registered to requestPut');
+    }
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
-    await this.sqs.sendMessage({
-      QueueUrl: this.putQueueUrl,
-      MessageBody: JSON.stringify({
+    await Promise.all(this.queues.map(queue => {
+      queue.send({
+        id: this.id,
         url: rawUrl,
-      }),
-    }).promise();
+      });
+    }));
     this.debug(`sent put request for ${rawUrl}`);
   }
 }
 
 module.exports = {
-  CacheManager
+  CacheManager,
 };

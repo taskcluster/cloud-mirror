@@ -90,13 +90,16 @@ development:
     publicUrl: http://localhost:5555
 test:
   app:
-    ensureSSL: false
+    ensureSSL: true
     maxWaitForCachedCopy: 5000 #ms
     allowedPatterns:
-      - '.*'
+      - '^https://httpbin.org/'
+      - '^https://www.google.com/'
+      - '^https://google.com/'
+      - '^http://www.google.com/'
   redis:
     host: 127.0.0.1
   server:
-    port: 5555
+    port: 5556
     env: development
-    publicUrl: http://localhost:5555
+    publicUrl: http://localhost:5556

@@ -1,10 +1,11 @@
 let request = require('request-promise').defaults({
   followRedirect: false,
   simple: false,
-  resolveWithFullResponse: true
+  resolveWithFullResponse: true,
 });
 let debug = require('debug')('cloud-mirror:follow-redirects');
 let assert = require('assert');
+let url = require('url');
 /**
  * Follow redirects in a secure way, unless configured not to.  This function
  * will ensure that all redirects in a redirect chain are pointing to HTTPS
@@ -24,7 +25,7 @@ let assert = require('assert');
  *   those.  This can be checked for after this call by using the addresses
  *   property of the resolution object.
  */
-async function followRedirects(firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
+async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
   // Number of redirects to follow
   let addresses = [];
 

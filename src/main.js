@@ -11,6 +11,7 @@ let uuid = require('uuid');
 
 let aws = require('aws-sdk-promise');
 let CacheManager = require('./cache-manager').CacheManager;
+let QueueManager = require('./queue-manager').QueueManager;
 let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
 
 let bluebird = require('bluebird');
@@ -43,7 +44,8 @@ let load = base.loader({
     requires: ['cfg'],
     setup: ({cfg}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
-      return new aws.SQS(cfg.sqs);
+      let sqsCfg = cfg.sqs;
+      return new aws.SQS(sqsCfg);
     },
   },
 
@@ -54,28 +56,32 @@ let load = base.loader({
         return new base.stats.Influx(cfg.influx);
       }
       return new base.stats.NullDrain();
-    }
+    },
   },
 
   monitor: {
     requires: ['cfg', 'influx', 'process'],
-    setup: ({cfg, influx, process}) => base.stats.startProcessUsageReporting({
-      drain:      influx,
-      component:  cfg.app.statsComponent,
-      process:    process
-    })
+    setup: ({cfg, influx, process}) => base.stats.startProcessUsageReporting(
+      {
+        drain:      influx,
+        component:  cfg.app.statsComponent,
+        process:    process,
+      }
+    ),
   },
 
   // Validator and publisher
   validator: {
     requires: ['cfg'],
-    setup: ({cfg}) => base.validator({
-      folder:        path.join(__dirname, 'schemas'),
-      constants:     require('./schemas/constants'),
-      publish:       cfg.app.publishMetaData,
-      schemaPrefix:  'cloud-mirror/v1/',
-      aws:           cfg.aws
-    })
+    setup: ({cfg}) => base.validator(
+      {
+        folder:        path.join(__dirname, 'schemas'),
+        constants:     require('./schemas/constants'),
+        publish:       cfg.app.publishMetaData,
+        schemaPrefix:  'cloud-mirror/v1/',
+        aws:           cfg.aws,
+      }
+    ),
   },
 
   /*publisher: {
@@ -95,28 +101,30 @@ let load = base.loader({
 
   api: {
     requires: [
-      'cfg', /*'publisher',*/ 'validator', 'influx', 'redis', 's3backends',
+      'cfg', /*'publisher',*/ 'validator', 'influx', 'redis', 'cachemanagers', 'queue',
     ],
-    setup: (ctx) => v1.setup({
-      context: {
-        //publisher: ctx.publisher,
+    setup: (ctx) => v1.setup(
+      {
+        context: {
+          //publisher: ctx.publisher,
+          validator: ctx.validator,
+          redis: ctx.redis,
+          cacheManagers: ctx.cachemanagers,
+          maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
+          allowedPatterns: ctx.cfg.app.allowedPatterns.map(x => new RegExp(x)),
+          redirectLimit: ctx.cfg.app.redirectLimit,
+          ensureSSL: ctx.cfg.app.ensureSSL,
+        },
         validator: ctx.validator,
-        redis: ctx.redis,
-        s3backends: ctx.s3backends,
-        maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
-        allowedPatterns: ctx.cfg.app.allowedPatterns.map(x => new RegExp(x)),
-        redirectLimit: ctx.cfg.app.redirectLimit,
-        ensureSSL: ctx.cfg.app.ensureSSL,
+        authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
+        publish: ctx.cfg.app.publishMetaData,
+        baseUrl: ctx.cfg.server.publicUrl + '/v1',
+        referencePrefix: 'cloud-mirror/v1/api.json',
+        aws: ctx.cfg.aws,
+        component: ctx.cfg.app.statsComponent,
+        drain: ctx.influx,
       },
-      validator: ctx.validator,
-      authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
-      publish: ctx.cfg.app.publishMetaData,
-      baseUrl: ctx.cfg.server.publicUrl + '/v1',
-      referencePrefix: 'cloud-mirror/v1/api.json',
-      aws: ctx.cfg.aws,
-      component: ctx.cfg.app.statsComponent,
-      drain: ctx.influx,
-    })
+    ),
   },
 
   // Create the server process
@@ -129,26 +137,58 @@ let load = base.loader({
     },
   },
 
-  s3backends: {
-    requires: ['cfg', 'sqs', 'redis', 'profile'],
-    setup: async ({cfg, sqs, redis, profile}) => {
+  queue: {
+    requires: ['cachemanagers', 'cfg', 'sqs', 'profile'],
+    setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues}) => {
 
-      let cacheManagers = {};
-      let regions = cfg.backend.s3.regions.split(',');
+      let handler = async (obj) => {
+        assert(obj.id, 'must provide id in queue request');
+        assert(typeof obj.id === 'string', 'id must be string');
+        assert(obj.url, 'must provide url in queue request');
+        assert(typeof obj.url === 'string', 'url must be string');
 
-      for (let region of regions) {
-        let bucket;
-        if (profile === 'test') {
-          if (!testBucket) {
-            testBucket = uuid.v4().replace(/-/g, '');
-            // Prefix for easy cleanup
-            testBucket = 'cloud-mirror-test-' + testBucket;
-          }
-          bucket = testBucket;
-        } else {
-          bucket = cfg.backend.s3.bucketBase + cfg.server.env + '-' + region;
-        }
+        let selectedCacheManagers = cachemanagers.filter(x => x.id === obj.id);
+        await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+      };
 
+      let queue = new QueueManager({
+        queueName: `cloud-mirror-${profile}`,
+        sqs: sqs,
+        batchSize: cfg.app.sqsBatchSize,
+        handler: handler,
+      });
+
+      await queue.init();
+
+      cachemanagers.forEach(manager => {
+        manager.registerQueue(queue);
+      });
+
+      return queue;
+    },
+  },
+
+  backend: {
+    requires: ['queue'],
+    setup: async ({queue}) => {
+      queue.start();
+      return queue;
+    },
+  },
+
+  cachemanagers: {
+    requires: ['cfg', 'redis', 'profile', 'sqs'],
+    setup: async ({cfg, redis, profile, sqs, sqsQueues}) => {
+
+      let cacheManagers = [];
+      let s3regions = cfg.backend.s3.regions.split(',');
+
+      for (let region of s3regions) {
+        let bucket = cfg.backend.s3.bucketBase + profile + '-' + region;
+
+        // We want to log aws-sdk calls so we write a custom file like object
+        // which uses a debug function instead of the default of writing
+        // directly to stdout
         let awsCfg = _.omit(cfg.aws, 'region');
         awsCfg.region = region;
         let s3Debugger = debugModule('cloud-mirror:aws-s3:' + region);
@@ -157,11 +197,15 @@ let load = base.loader({
             for (let y of x.split('\n')) {
               s3Debugger(y);
             }
-          }
+          },
         };
         awsCfg.logger = awsDebugLoggerBridge;
+
+        // Create the actual S3 object.
         let s3 = new aws.S3(awsCfg);
+
         let storageProvider = new S3StorageProvider({
+          service: 's3',
           region: region,
           bucket: bucket,
           partSize: cfg.backend.s3.partSize,
@@ -174,33 +218,28 @@ let load = base.loader({
         await storageProvider.init();
 
         let cacheManager = new CacheManager({
-          putQueueName: `S3-${region}-${profile}-put-request`,
           allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
           cacheTTL: cfg.backend.cacheTTL,
           redis: redis,
-          sqs: sqs,
           ensureSSL: cfg.app.ensureSSL,
           storageProvider: storageProvider,
           redirectLimit: cfg.app.redirectLimit,
-          sqsBatchSize: cfg.app.sqsBatchSize,
+          sqs: sqs,
         });
 
         await cacheManager.init();
 
-        cacheManagers[region] = cacheManager;
+        cacheManagers.push(cacheManager);
       }
 
       return cacheManagers;
     },
   },
 
-  listeningS3Backends: {
-    requires: ['cfg', 's3backends', 'monitor'],
-    setup: async ({s3backends}) => {
-      for (let region of _.keys(s3backends)) {
-        s3backends[region].startListeningToPutQueue();
-      }
-      return s3backends;
+  all: {
+    requires: ['backend', 'server'],
+    setup: async ({listeningcachemanagers, server}) => {
+      await Promise.race([listeningcachemanagers, server]);
     },
   },
 
@@ -208,6 +247,7 @@ let load = base.loader({
 
 // If this file is executed launch component from first argument
 if (!module.parent) {
+  require('source-map-support').install();
   load(process.argv[2], {
     process: process.argv[2],
     profile: process.env.NODE_ENV,
