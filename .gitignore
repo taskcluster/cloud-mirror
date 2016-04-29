@@ -3,3 +3,4 @@ user-config.yml
 *-cred.sh
 node_modules
 stack.yml
+*.stack.yml

@@ -10,4 +10,4 @@ COPY package.json /app/
 RUN npm install .
 COPY . /app/
 
-ENTRYPOINT [ "node", "lib/main.js" ]
+ENTRYPOINT [ "node", "lib/main.js", "backend"]
