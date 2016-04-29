@@ -70,7 +70,6 @@ let load = base.loader({
     ),
   },
 
-  // Validator and publisher
   validator: {
     requires: ['cfg'],
     setup: ({cfg}) => base.validator(
@@ -78,35 +77,19 @@ let load = base.loader({
         folder:        path.join(__dirname, 'schemas'),
         constants:     require('./schemas/constants'),
         publish:       cfg.app.publishMetaData,
-        schemaPrefix:  'cloud-mirror/v1/',
+        prefix:  'cloud-mirror/v1/',
         aws:           cfg.aws,
       }
     ),
   },
 
-  /*publisher: {
-    requires: ['cfg', 'validator', 'influx', 'process'],
-    setup: ({cfg, validator, influx, process}) => exchanges.setup({
-      credentials:        cfg.pulse,
-      exchangePrefix:     cfg.app.exchangePrefix,
-      validator:          validator,
-      referencePrefix:    'cloud-mirror/v1/exchanges.json',
-      publish:            cfg.app.publishMetaData,
-      aws:                cfg.aws,
-      drain:              influx,
-      component:          cfg.app.statsComponent,
-      process:            process
-    })
-  },*/
-
   api: {
     requires: [
-      'cfg', /*'publisher',*/ 'validator', 'influx', 'redis', 'cachemanagers', 'queue',
+      'cfg', 'validator', 'influx', 'redis', 'cachemanagers', 'queue',
     ],
     setup: (ctx) => v1.setup(
       {
         context: {
-          //publisher: ctx.publisher,
           validator: ctx.validator,
           redis: ctx.redis,
           cacheManagers: ctx.cachemanagers,

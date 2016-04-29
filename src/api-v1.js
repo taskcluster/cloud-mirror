@@ -115,7 +115,7 @@ api.declare({
     let x = 0;
 
     while (new Date() - startTime < maxWait) {
-      debug(`Check ${x++} of ${url}`);
+      debug(`Check ${++x} of ${url}`);
 
       let result = await backend.getUrlForRedirect(url);
 
