@@ -218,21 +218,19 @@ api.declare({
   
   // Let's pick which backend to use.  In this case, we're looking to find the
   // only backend known that matches the potential id
-  let backends = this.cacheManagers.filter(x => x.id === id);
+  let backends = this.cacheManagers.filter(x => x.id === incomingId);
   if (backends.length > 1) {
-    debug('API server is misconfigured and has more than one cachemanager with id, crashing' + id);
-    // Because this should never ever happen
-    process.exit(-1);
+    throw new Error('API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
   } else if (backends.length === 0) {
     debug(`${incomingId} is not known`);
     return res.status(404).json({
       msg: `${incomingId} is not known`,
     });
-  } else {
-    let backend = backends[0];
-    await backend.purge(url);
-    return res.status(204).send();
   }
+
+  let backend = backends[0];
+  await backend.purge(url);
+  return res.status(204).send();
 });
 
 api.declare({
