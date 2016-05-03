@@ -55,9 +55,11 @@ api.declare({
   // parameter after where the urlencoded url ought to be.  If this is any
   // js-truthy value, we know that someone didn't pass in url-encoded url.
   if (error) {
-    return res.status(400).json({
-      msg: 'URL Must be URL encoded!',
-    });
+    return res.reportError(
+        'InputError',
+        'URL Must be URL Encoded!',
+        {url, error}
+    );
   }
 
   let logthingy = `${url} in ${service}/${region}`;
@@ -69,6 +71,10 @@ api.declare({
     debug(err.stack || err);
     // Intentionally vague because we don't want to reveafollowRedirects
     // our configuration too much
+    //
+    // We do not use res.reportError here because the declared error codes
+    // don't really match 100% with what we're expressing here.  This is less
+    // important since this is not intended to be used by api clients
     let msg;
     let code = 503; // default is that something is temporarily wrong
     switch (err.code) {
@@ -105,9 +111,11 @@ api.declare({
     process.exit(-1);
   } else if (backends.length === 0) {
     debug(`${incomingId} is not known`);
-    return res.status(404).json({
-      msg: `${incomingId} is not known`,
-    });
+    return res.reportError(
+        'ResourceNotFound',
+        'service or region not found',
+        {url, region, service}
+    );
   } else {
     let backend = backends[0];
     let maxWait = this.maxWaitForCachedCopy;
@@ -206,9 +214,11 @@ api.declare({
 
   // See comment in the redirect message to explain this parameter
   if (error) {
-    return res.status(400).json({
-      msg: 'URL Must be URL encoded!',
-    });
+    return res.reportError(
+        'InputError',
+        'URL Must be URL Encoded!',
+        {url, error}
+    );
   }
 
   let logthingy = `${url} in ${service}/${region}`;
@@ -223,9 +233,11 @@ api.declare({
     throw new Error('API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
   } else if (backends.length === 0) {
     debug(`${incomingId} is not known`);
-    return res.status(404).json({
-      msg: `${incomingId} is not known`,
-    });
+    return res.reportError(
+        'ResourceNotFound',
+        'service or region not found',
+        {url, region, service}
+    );
   }
 
   let backend = backends[0];
