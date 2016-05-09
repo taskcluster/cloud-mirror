@@ -42,7 +42,10 @@
     "sqs-consumer": "^3.0.0",
     "stream-meter": "^1.0.3",
     "superagent-promise": "^1.0.3",
-    "taskcluster-base": "^0.13.0",
+    "taskcluster-lib-api": "^0.12.0",
+    "taskcluster-lib-app": "^0.8.10",
+    "taskcluster-lib-loader": "^0.1.1",
+    "taskcluster-lib-stats": "^0.8.8",
     "typed-env-config": "^0.10.0",
     "uuid": "^2.0.1"
   },

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 let debugModule = require('debug');
 let debug = debugModule('cloud-proxy:main');
-let base = require('taskcluster-base');
+let base = {
+  app: require('taskcluster-lib-app'),
+  stats: require('taskcluster-lib-stats'),
+  validator: require('schema-validator-publisher'),
+  loader: require('taskcluster-lib-loader'),
+};
 let config = require('typed-env-config');
 let path = require('path');
 let _ = require('lodash');

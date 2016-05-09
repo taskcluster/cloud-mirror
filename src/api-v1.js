@@ -1,5 +1,5 @@
 let debug = require('debug')('cloud-mirror:api-v1');
-let base = require('taskcluster-base');
+let API = require('taskcluster-lib-api');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
 let delayer = require('./delayer');
@@ -7,7 +7,7 @@ let followRedirects = require('./follow-redirects');
 
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
-let api = new base.API({
+let api = new API({
   title: 'Cloud Mirror API',
   description: 'Service to duplicate URLs from various cloud providers',
   schemaPrefix: 'http://schemas.taskcluster.net/s3-distribute/v1/',
