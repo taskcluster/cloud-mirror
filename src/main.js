@@ -50,6 +50,15 @@ let load = base.loader({
     setup: ({cfg}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
       let sqsCfg = cfg.sqs;
+      let sqsDebugger = debugModule('cloud-mirror:aws-sqs');
+      let awsDebugLoggerBridge = {
+        write: x => {
+          for (let y of x.split('\n')) {
+            sqsDebugger(y);
+          }
+        },
+      };
+      sqsCfg.logger = awsDebugLoggerBridge;
       return new aws.SQS(sqsCfg);
     },
   },

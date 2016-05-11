@@ -171,7 +171,7 @@ class QueueManager {
   async purgeDead () {
     this.debug(`purging dead queue for ${this.queueName} ${this.deadQueueName}`);
     await this.sqs.purgeQueue({
-      QueueUrl: this.queueUrl,
+      QueueUrl: this.deadQueueUrl,
     }).promise();
   }
 

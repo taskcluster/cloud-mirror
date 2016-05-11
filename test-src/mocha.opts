@@ -1,0 +1,2 @@
+--register source-map-support/register
+--timeout 60s

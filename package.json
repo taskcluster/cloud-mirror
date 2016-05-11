@@ -8,10 +8,10 @@
     "prepublish": "npm run compile",
     "install": "npm run compile",
     "pretest": "npm run compile",
-    "test": "npm run lint && mocha --require source-map-support/register -t 30s test/*_test.js",
+    "test": "npm run lint && mocha test/*_test.js",
     "lint": "eslint src/*.js test-src/*.js",
     "lintfix": "eslint --fix src/*.js test-src/*.js",
-    "debugtest": "mocha debug --require source-map-support/register -t 30s test/*_test.js"
+    "debugtest": "mocha debug test/*_test.js"
   },
   "author": "John Ford <jhford@mozilla.com>",
   "license": "MPL-2.0",
