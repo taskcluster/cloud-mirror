@@ -63,26 +63,16 @@ api.declare({
   }
 
   let logthingy = `${url} in ${service}/${region}`;
-  debug(`Attempting to redirect to ${logthingy}`);
 
-  // If the URL is not in the cache, we want to 
-  let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
-
-  if (!validUrl) {
-    return res.status(403).json({
-      msg: 'URL is not allowed',
-      url: url,
-    });
-  }
-  
   // This is the ID that we need to find a backend for
   let incomingId = `${service}_${region}`;
   
   // Let's pick which backend to use.  In this case, we're looking to find the
   // only backend known that matches the potential id
   let backends = this.cacheManagers.filter(x => x.id === incomingId);
+
   if (backends.length > 1) {
-    debug('API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
+    debug('[alert-operator] API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
     // Because this should never ever happen
     process.exit(-1);
   } else if (backends.length === 0) {
@@ -97,21 +87,24 @@ api.declare({
     let maxWait = this.maxWaitForCachedCopy;
     let startTime = new Date();
     let x = 0;
-    let result = await backend.getUrlForRedirect(url);
+    let result;
 
-    // We only want to do validation if we don't already know the URL
-    if (result.status === 'absent' || result.status === 'error') {
-      let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+    do {
+      result = await backend.getUrlForRedirect(url);
+      // We only want to do validation a single time.  Since we need to use a value
+      // that's fetched inside the do-while-loop, I decided to check for the first iteration
+      // instead of a more complicated structure
+      if (x === 0 && (result.status === 'absent' || result.status === 'error')) {
+        let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
 
-      if (!validUrl) {
-        return res.status(403).json({
-          msg: 'URL is not allowed',
-          url: url,
-        });
+        if (!validUrl) {
+          return res.status(403).json({
+            msg: 'URL is not allowed',
+            url: url,
+          });
+        }
       }
-    }
 
-    while (new Date() - startTime < maxWait) {
       if (result.status === 'present') {
         debug(`${logthingy} is present`);
         return res.status(302).location(result.url).json({
@@ -129,12 +122,8 @@ api.declare({
       } else {
         debug(`[alert-opereator] ${logthingy} invalid status: ${result.status}`);
       }
-
-      // When we have Influx set up, let's submit this datapoint
-      // to a series called 'Cloud Mirror Cache Hits'
       await delayer(1000);
-      result = await backend.getUrlForRedirect(url);
-    }
+    } while (new Date() - startTime < maxWait);
 
     // If we get here, we're doing the fallback of redirecting
     // to the original URL because the caching took too long
