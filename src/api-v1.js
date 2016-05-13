@@ -3,7 +3,7 @@ let API = require('taskcluster-lib-api');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
 let delayer = require('./delayer');
-let followRedirects = require('./follow-redirects');
+let validateUrl = require('./validate-url');
 
 let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 
@@ -65,40 +65,15 @@ api.declare({
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to redirect to ${logthingy}`);
 
-  try {
-    await followRedirects(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
-  } catch (err) {
-    debug(err.stack || err);
-    // Intentionally vague because we don't want to reveafollowRedirects
-    // our configuration too much
-    //
-    // We do not use res.reportError here because the declared error codes
-    // don't really match 100% with what we're expressing here.  This is less
-    // important since this is not intended to be used by api clients
-    let msg;
-    let code = 503; // default is that something is temporarily wrong
-    switch (err.code) {
-      case 'DoesNotMatchPatterns':
-        msg = 'Input URL does not match whitelist';
-        code = 403; // forbidden
-        break;
-      case 'InsecureURL':
-        msg = 'Refusing to follow a non-SSL redirect';
-        code = 403; // forbidden
-        break;
-      case 'HTTPError':
-        msg = 'HTTP Error while trying to resolve redirects';
-        break;
-      default:
-        msg = 'Input URL failed validation for unknown reason';
-        break;
-    }
-    return res.status(code).json({
-      msg: msg,
-      code: code,
+  let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+
+  if (!validUrl) {
+    return res.status(403).json({
+      msg: 'URL is not allowed',
+      url: url,
     });
   }
-
+  
   // This is the ID that we need to find a backend for
   let incomingId = `${service}_${region}`;
   

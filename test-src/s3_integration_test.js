@@ -194,12 +194,12 @@ describe('Integration Tests', () => {
 
   // For all error states which are unknown, make sure we return a 503 to
   // allow clients to retry
-  testFailure('should not cache a 400', httpbin + '/status/404', 503);
-  testFailure('should not cache a 401', httpbin + '/status/404', 503);
-  testFailure('should not cache a 403', httpbin + '/status/404', 503);
-  testFailure('should not cache a 404', httpbin + '/status/404', 503);
-  testFailure('should not cache a 500', httpbin + '/status/404', 503);
-  testFailure('should not cache a 503', httpbin + '/status/404', 503);
+  testFailure('should not cache a 400', httpbin + '/status/404', 500);
+  testFailure('should not cache a 401', httpbin + '/status/404', 500);
+  testFailure('should not cache a 403', httpbin + '/status/404', 500);
+  testFailure('should not cache a 404', httpbin + '/status/404', 500);
+  testFailure('should not cache a 500', httpbin + '/status/404', 500);
+  testFailure('should not cache a 503', httpbin + '/status/404', 500);
 
   // For cases where the request is not allowed, return 403
   testFailure('should only cache whitelisted url', 'https://www.facebook.com', 403);

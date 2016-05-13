@@ -6,6 +6,7 @@ let request = require('request-promise').defaults({
 let debug = require('debug')('cloud-mirror:follow-redirects');
 let assert = require('assert');
 let url = require('url');
+
 /**
  * Follow redirects in a secure way, unless configured not to.  This function
  * will ensure that all redirects in a redirect chain are pointing to HTTPS
@@ -13,19 +14,11 @@ let url = require('url');
  * Mirror storage was obtained through with an HTTP chain of custody.  If the
  * config parameter 'allowInsecureRedirect' is a truthy value, HTTP urls and
  * redirections from HTTPS to HTTP resources will be allowed.
- *
- * TODO:
- * - Ensure that the certificate validation being done here is using
- *   certificates that we're comfortable with.
- * - Decide whether the allowedPatterns should factor in here.  Arguably, if we
- *   start the chain with an allowed url, the redirects after that could be
- *   considered and implementation detail of the originating url's content
- *   owner.  The counter argument is that if we only allow some URLs, that we
- *   should ensure that nothing in the redirect chain is from a site other than
- *   those.  This can be checked for after this call by using the addresses
- *   property of the resolution object.
+ * 
+ * This will return `false` if the url is invalid, an object with information if
+ * it is valid and will throw if an error occured while doing the redirects
  */
-async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
+async function validateUrl (firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
   // Number of redirects to follow
   let addresses = [];
 
@@ -33,18 +26,7 @@ async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimi
 
   // What we're saying here is that all URLs passed through the redirector must
   // start with https: in order to avoid causing this function to throw
-  let checkSSL = (u) => {
-    if (!u.match(/^https:/)) {
-      let s = 'Refusing to follow unsafe redirects: ';
-      s += addresses.map(x => x.url).join(' --> ');
-      s += u;
-
-      let err = new Error(s);
-      err.addresses = addresses;
-      err.code = 'InsecureURL';
-      throw err;
-    }
-  };
+  let checkSSL = (u) => url.parse(u).protocol === 'https:';
 
   // If we aren't enforcing secure redirects, it's just easier to make the
   // validation function a no-op
@@ -62,11 +44,7 @@ async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimi
         break;
       }
     }
-    if (!valid) {
-      let err = new Error(`URL ${u} does not match any allowed url patterns`);
-      err.code = 'DoesNotMatchPatterns';
-      throw err;
-    }
+    return valid;
   };
 
   // the u variable points to the URL in the current redirect chain
@@ -77,8 +55,10 @@ async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimi
   let c = true;
 
   for (let i = 0 ; c && i < redirectLimit ; i++) {
-    checkSSL(u);
-    checkPatterns(u);
+    if (!checkSSL(u) || !checkPatterns(u)) {
+      return false;
+    }
+
     let result = await request.head(u);
     let sc = result.statusCode;
 
@@ -114,10 +94,9 @@ async function followRedirects (firstUrl, allowedPatterns = [/.*/], redirectLimi
       throw err;
     }
   }
-  let err = new Error(`Limit of ${redirectLimit} redirects reached:` +
-                      addresses.map(x => x.url).join(' --> '));
-  err.code = 'RedirectLimitReached';
-  throw err;
+
+  debug(`Limit of ${redirectLimit} redirects reached:` + addresses.map(x => x.url).join(' --> '));
+  return false;
 };
 
-module.exports = followRedirects;
+module.exports = validateUrl;
