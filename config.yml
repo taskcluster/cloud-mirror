@@ -11,10 +11,10 @@ defaults:
     sqsBatchSize: 10
     maxWaitForCachedCopy: 90000 #ms
     allowedPatterns:
-      - '^https://www.mozilla.org/'
-      - '^https://s3-us-west-2.amazonaws.com/taskcluster-public-artifacts/'
-      - '^https://public-artifacts.taskcluster.net/'
-      - '^https://queue.taskcluster.net/'
+      - '^https://www\.mozilla\.org/'
+      - '^https://s3-us-west-2\.amazonaws\.com/taskcluster-public-artifacts/'
+      - '^https://public-artifacts\.taskcluster.net/'
+      - '^https://queue\.taskcluster\.net/'
 
   taskcluster:
     authBaseUrl: https://auth.taskcluster.net/v1
