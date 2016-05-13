@@ -65,6 +65,7 @@ api.declare({
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to redirect to ${logthingy}`);
 
+  // If the URL is not in the cache, we want to 
   let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
 
   if (!validUrl) {
@@ -96,61 +97,50 @@ api.declare({
     let maxWait = this.maxWaitForCachedCopy;
     let startTime = new Date();
     let x = 0;
+    let result = await backend.getUrlForRedirect(url);
+
+    // We only want to do validation if we don't already know the URL
+    if (result.status === 'absent' || result.status === 'error') {
+      let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+
+      if (!validUrl) {
+        return res.status(403).json({
+          msg: 'URL is not allowed',
+          url: url,
+        });
+      }
+    }
 
     while (new Date() - startTime < maxWait) {
-      debug(`Check ${++x} of ${url}`);
-
-      let result = await backend.getUrlForRedirect(url);
-
       if (result.status === 'present') {
         debug(`${logthingy} is present`);
-        res.status(302);
-        res.location(result.url);
-
-        // Instead of just returning result object, we want to return only
-        // known properties.  This is to avoid possible leakage
-        let datapoint = {
-          url: url,
-          service: service,
-          region: region,
-        };
-
-        debug(`Found ${url}`);
-        return res.json({
+        return res.status(302).location(result.url).json({
           status: result.status,
           url: result.url,
         });
+      } else if (result.status === 'pending') {
+        // Do nothing for pending operations
+      } else if (result.status === 'absent') {
+        debug(`${logthingy} is absent, requesting`);
+        backend.requestPut(url);
       } else if (result.status === 'error') {
-        debug('Redirecting uncached copy because error occured during caching');
-        debug(result.stack || 'unknown error');
-        res.status(302);
-        res.location(url);
-        return res.json({
-          url: url,
-          msg: 'Error caching file, redirecting to original',
-        });
+        debug(`${logthingy} had error, retrying request.  Backend stack: ${result.stack}`);
+        backend.requestPut(url);
+      } else {
+        debug(`[alert-opereator] ${logthingy} invalid status: ${result.status}`);
       }
 
       // When we have Influx set up, let's submit this datapoint
       // to a series called 'Cloud Mirror Cache Hits'
       await delayer(1000);
+      result = await backend.getUrlForRedirect(url);
     }
 
     // If we get here, we're doing the fallback of redirecting
     // to the original URL because the caching took too long
-    debug(`Redirecting to uncached copy because it took too long ${url}`);
-    res.status(302);
-    res.location(url);
+    debug(`[alert-operator] Redirecting to uncached copy because it took too long ${url}`);
 
-    // When we have Influx set up, let's submit this datapoint
-    // to a series called 'Cloud Mirror Cache Misses'
-    let datapoint = {
-      url: url,
-      service: service,
-      region: region,
-    };
-
-    return res.json({
+    return res.status(302).location(url).json({
       url: url,
       msg: `Cached copy did not show up in ${maxWait/1000}s`,
     });

@@ -125,6 +125,10 @@ class CacheManager {
 
     let worldAddress = this.storageProvider.worldAddress(rawUrl);
 
+    let outcome = {
+      url: worldAddress,
+    };
+
     if (!cacheEntry) {
       this.debug('cache entry not found for ' + rawUrl);
       let head = requestPromise.head({
@@ -145,39 +149,21 @@ class CacheManager {
         this.debug(`backfilling cache for ${rawUrl}`);
         await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
         this.debug(`backfilled cache for ${rawUrl}`);
-        return {
-          status: 'present',
-          url: worldAddress,
-        };
+        outcome.status = 'present';
       } else {
-        this.debug(`did not find ${rawUrl} in cache, inserting`);
-        await this.requestPut(rawUrl);
-        return {
-          status: 'pending',
-          url: worldAddress,
-        };
+        outcome.status = 'absent';
       }
     } else if (cacheEntry.status === 'present') {
-      return {
-        status: 'present',
-        url: worldAddress,
-      };
+      outcome.status = 'present';
     } else if (cacheEntry.status === 'pending') {
-      return {
-        status: 'pending',
-        url: worldAddress,
-      };
+      outcome.status = 'pending';
     } else if (cacheEntry.status === 'error') {
-      this.debug(`previous status was error: ${cacheEntry.stack}`);
-      await this.requestPut(rawUrl);
-      return {
-        status: 'pending',
-        url: worldAddress,
-      };
+      outcome.status = 'error';
     } else {
       throw new Error('cacheEntry has invalid state ' + JSON.stringify(cacheEntry));
     }
-
+    
+    return outcome;
   }
 
   async purge (rawUrl) {
