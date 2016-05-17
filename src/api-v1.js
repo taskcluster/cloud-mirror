@@ -72,7 +72,7 @@ api.declare({
   let backends = this.cacheManagers.filter(x => x.id === incomingId);
 
   if (backends.length > 1) {
-    debug('[alert-operator] API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
+    debug('[alert-operator] API server misconfigured, has more than one cachemanager with id, crashing' + incomingId);
     // Because this should never ever happen
     process.exit(-1);
   } else if (backends.length === 0) {

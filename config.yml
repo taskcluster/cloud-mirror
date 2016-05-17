@@ -84,7 +84,7 @@ development:
     ensureSSL: false
     maxWaitForCachedCopy: 5000 #ms
     allowedPatterns:
-      - '.*'
+      - '^.*/'
   redis:
     host: 127.0.0.1
   server:

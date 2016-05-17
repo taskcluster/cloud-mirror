@@ -29,6 +29,28 @@ let v1 = require('./api-v1');
 
 let testBucket;
 
+/**
+ * Take a list of string regular expressions, verify that they meet conditions
+ * that we've established as valid for allowed patterns and return a list of
+ * regular expression objects
+ */
+function compilePatterns (patterns) {
+  let regexps = [];
+  for (let pattern of patterns) {
+    if (!pattern.startsWith('^')) {
+      throw new Error('All allowed patterns must start with ^ character');
+    }
+
+    if (!pattern.endsWith('/')) {
+      throw new Error('All allowed patterns must end with / character');
+    }
+
+    regexps.push(new RegExp(pattern));
+  }
+
+  return regexps;
+}
+
 // Create component loader
 let load = base.loader({
   cfg: {
@@ -108,7 +130,7 @@ let load = base.loader({
           redis: ctx.redis,
           cacheManagers: ctx.cachemanagers,
           maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
-          allowedPatterns: ctx.cfg.app.allowedPatterns.map(x => new RegExp(x)),
+          allowedPatterns: compilePatterns(ctx.cfg.app.allowedPatterns),
           redirectLimit: ctx.cfg.app.redirectLimit,
           ensureSSL: ctx.cfg.app.ensureSSL,
         },
@@ -215,7 +237,7 @@ let load = base.loader({
         await storageProvider.init();
 
         let cacheManager = new CacheManager({
-          allowedPatterns: cfg.app.allowedPatterns.map(x => new RegExp(x)),
+          allowedPatterns: compilePatterns(cfg.app.allowedPatterns),
           cacheTTL: cfg.backend.cacheTTL,
           redis: redis,
           ensureSSL: cfg.app.ensureSSL,
