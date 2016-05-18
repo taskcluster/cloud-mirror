@@ -89,7 +89,7 @@ let load = base.loader({
   monitor: {
     requires: ['process', 'profile', 'cfg'],
     setup: ({process, profile, cfg}) => monitoring({
-      project: `cloud-mirror`,
+      project: 'cloud-mirror',
       credentials: cfg.taskcluster.credentials,
       mock: profile === 'test',
       process,
