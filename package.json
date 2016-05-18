@@ -45,7 +45,7 @@
     "taskcluster-lib-api": "^1.0.0",
     "taskcluster-lib-app": "^0.8.10",
     "taskcluster-lib-loader": "^0.1.1",
-    "taskcluster-lib-monitor": "^2.0.0",
+    "taskcluster-lib-monitor": "^2.1.0",
     "typed-env-config": "^0.10.0",
     "uuid": "^2.0.1"
   },
