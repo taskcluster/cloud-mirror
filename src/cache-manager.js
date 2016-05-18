@@ -101,7 +101,7 @@ class CacheManager {
 
       let start = process.hrtime();
 
-      await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
+      await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
 
       let d = process.hrtime(start);
       let duration = d[0] * 1000 + d[1] / 1000000;
