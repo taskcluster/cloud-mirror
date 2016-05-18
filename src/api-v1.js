@@ -92,6 +92,7 @@ api.declare({
 
     do {
       let startTime = new Date();
+      let start = process.hrtime();
       result = await backend.getUrlForRedirect(url);
       // We only want to do validation a single time.  Since we need to use a value
       // that's fetched inside the do-while-loop, I decided to check for the first iteration
@@ -110,13 +111,19 @@ api.declare({
         // that's never been requested before could never be in the cache, so
         // it not being there really is not an error case
         this.monitor.count(`${service}.${region}.cache-miss`, 1);
+        this.monitor.count('cache-miss', 1);
       } else {
-        this.monitor.count(`${service}.${region}.cache-hit`, 1);
       }
 
       if (result.status === 'present') {
         debug(`${logthingy} is present`);
-        this.monitor.measure(`${service}.${region}.cache-hit.time`, new Date() - startTime);
+
+        let d = process.hrtime(start);
+
+        let duration = d[0] * 1000 + d[1] / 1000000;
+        this.monitor.measure(`${service}.${region}.cache-hit.duration-ms`, duration);
+        this.monitor.count(`${service}.${region}.cache-hit`, 1);
+        this.monitor.count('cache-hit', 1);
         return res.status(302).location(result.url).json({
           status: result.status,
           url: result.url,

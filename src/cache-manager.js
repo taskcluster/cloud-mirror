@@ -46,6 +46,8 @@ class CacheManager {
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+    
+    this.monitor = config.monitor.prefix(this.id);
   }
 
   // Stub for now
@@ -97,20 +99,17 @@ class CacheManager {
         addresses: JSON.stringify(inputUrlInfo.addresses),
       };
 
-      let startTime = new Date();
+      let start = process.hrtime();
 
       await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
 
-      let duration = new Date() - startTime;
+      let d = process.hrtime(start);
+      let duration = d[0] * 1000 + d[1] / 1000000;
 
-      // TODO: total-bytes to track the total number of bytes for all time
-      // not sure that it's worthwhile, but it might be a fun metric to
-      // consider
-      this.monitor.count(`${this.id}.total-bytes`, m.bytes);
-      this.monitor.measure(`${this.id}.copy-time-ms`, duration);
-      this.monitor.measure(`${this.id}.copy-size-bytes`, m.bytes);
+      this.monitor.measure('copy-duration-ms', duration);
+      this.monitor.measure('copy-size-bytes', m.bytes);
       let speed = m.bytes / duration / 1.024;
-      this.monitor.measure(`${this.id}.copy-speed-kbps`, speed);
+      this.monitor.measure('copy-speed-kbps', speed);
 
       this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
 
@@ -153,7 +152,7 @@ class CacheManager {
         this.debug(`backfilled cache for ${rawUrl}`);
         outcome.status = 'present';
 
-        this.monitor.count(`id:${this.id}.backfill`, 1);
+        this.monitor.count('backfill', 1);
 
       } else {
         outcome.status = 'absent';
