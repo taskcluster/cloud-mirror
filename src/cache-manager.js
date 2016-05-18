@@ -237,19 +237,33 @@ class CacheManager {
     }
 
     let key = this.cacheKey(rawUrl);
-    await this.redis.multi()
-      .hmset(key, cacheEntry)
-      .expire(key, ttl)
-      .execAsync();
+    try {
+      await this.redis.multi()
+        .hmset(key, cacheEntry)
+        .expire(key, ttl)
+        .execAsync();
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-insert-failure', 1);
+    }
   }
 
   async readCacheEntry (rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
-    let result = await this.redis.hgetallAsync(key);
+    let result = undefined
+    try {
+      result = await this.redis.hgetallAsync(key);
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-read-failure', 1);
+    }
     if (result) {
       assert(_.includes(CACHE_STATES, result.status));
+      this.monitor.count('redis.cache-hit', 1);
+    } else {
+      this.monitor.count('redis.cache-miss', 1);
     }
     this.debug(`read cache entry for ${rawUrl}`);
     return result;
