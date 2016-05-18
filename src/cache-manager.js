@@ -28,6 +28,7 @@ class CacheManager {
       'redis', // Redis object where we should cache metadata
       'ensureSSL', // true if we should force only HTTP in redirect links
       'storageProvider', // StorageProvider instance to manage
+      'monitor', // taskcluster-lib-monitor instance
     ]) {
       assert(typeof config[x] !== 'undefined', `CacheManager requires ${x} configuration value`);
       this[x] = config[x];
@@ -102,13 +103,14 @@ class CacheManager {
 
       let duration = new Date() - startTime;
 
-      // Here's a datapoint when we have metrics
-      let dataPoint = {
-        id: this.id,
-        url: rawUrl,
-        duration: duration,
-        fileSize: m.bytes,
-      };
+      // TODO: total-bytes to track the total number of bytes for all time
+      // not sure that it's worthwhile, but it might be a fun metric to
+      // consider
+      this.monitor.count(`${this.id}.total-bytes`, m.bytes);
+      this.monitor.measure(`${this.id}.copy-time-ms`, duration);
+      this.monitor.measure(`${this.id}.copy-size-bytes`, m.bytes);
+      let speed = m.bytes / duration / 1.024;
+      this.monitor.measure(`${this.id}.copy-speed-kbps`, speed);
 
       this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
 
@@ -150,6 +152,9 @@ class CacheManager {
         await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
         this.debug(`backfilled cache for ${rawUrl}`);
         outcome.status = 'present';
+
+        this.monitor.count(`id:${this.id}.backfill`, 1);
+
       } else {
         outcome.status = 'absent';
       }

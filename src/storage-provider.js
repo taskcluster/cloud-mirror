@@ -21,6 +21,7 @@ class StorageProvider {
     assert(config, 'must pass a configuration object to StorageProvider constructor');
     assert(config.service, 'all StorageProviders must have a service name');
     assert(config.region, 'all StorageProviders must have a region name');
+    assert(config.monitor, 'all StorageProviders must have a monitor');
     this.service = config.service;
     this.region = config.region;
     if ((this.service + this.region).indexOf('_') !== -1) {
@@ -28,6 +29,7 @@ class StorageProvider {
     }
     this.id = this.service.toLowerCase() + '_' + this.region.toLowerCase();
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+    this.monitor = config.monitor;
   }
 
   /**

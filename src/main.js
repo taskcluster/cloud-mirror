@@ -3,7 +3,6 @@ let debugModule = require('debug');
 let debug = debugModule('cloud-proxy:main');
 let base = {
   app: require('taskcluster-lib-app'),
-  stats: require('taskcluster-lib-stats'),
   validator: require('schema-validator-publisher'),
   loader: require('taskcluster-lib-loader'),
 };
@@ -26,6 +25,8 @@ bluebird.promisifyAll(redis.Multi.prototype);
 
 //let exchanges = require('./exchanges');
 let v1 = require('./api-v1');
+
+let monitoring = require('taskcluster-lib-monitor');
 
 let testBucket;
 
@@ -85,25 +86,14 @@ let load = base.loader({
     },
   },
 
-  influx: {
-    requires: ['cfg'],
-    setup: ({cfg}) => {
-      if (cfg.influx.connectionString) {
-        return new base.stats.Influx(cfg.influx);
-      }
-      return new base.stats.NullDrain();
-    },
-  },
-
   monitor: {
-    requires: ['cfg', 'influx', 'process'],
-    setup: ({cfg, influx, process}) => base.stats.startProcessUsageReporting(
-      {
-        drain:      influx,
-        component:  cfg.app.statsComponent,
-        process:    process,
-      }
-    ),
+    requires: ['process', 'profile', 'cfg'],
+    setup: ({process, profile, cfg}) => monitoring({
+      project: `cloud-mirror`,
+      credentials: cfg.taskcluster.credentials,
+      mock: profile === 'test',
+      process,
+    }),
   },
 
   validator: {
@@ -120,9 +110,7 @@ let load = base.loader({
   },
 
   api: {
-    requires: [
-      'cfg', 'validator', 'influx', 'redis', 'cachemanagers', 'queue',
-    ],
+    requires: ['cfg', 'validator', 'redis', 'cachemanagers', 'queue', 'monitor'],
     setup: (ctx) => v1.setup(
       {
         context: {
@@ -133,6 +121,7 @@ let load = base.loader({
           allowedPatterns: compilePatterns(ctx.cfg.app.allowedPatterns),
           redirectLimit: ctx.cfg.app.redirectLimit,
           ensureSSL: ctx.cfg.app.ensureSSL,
+          monitor: ctx.monitor.prefix('api'),
         },
         validator: ctx.validator,
         authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
@@ -140,8 +129,8 @@ let load = base.loader({
         baseUrl: ctx.cfg.server.publicUrl + '/v1',
         referencePrefix: 'cloud-mirror/v1/api.json',
         aws: ctx.cfg.aws,
-        component: ctx.cfg.app.statsComponent,
-        drain: ctx.influx,
+        //component: ctx.cfg.app.statsComponent,
+        monitor: ctx.monitor,
       },
     ),
   },
@@ -157,8 +146,8 @@ let load = base.loader({
   },
 
   queue: {
-    requires: ['cachemanagers', 'cfg', 'sqs', 'profile'],
-    setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues}) => {
+    requires: ['cachemanagers', 'cfg', 'sqs', 'profile', 'monitor'],
+    setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues, monitor}) => {
 
       let handler = async (obj) => {
         assert(obj.id, 'must provide id in queue request');
@@ -168,6 +157,15 @@ let load = base.loader({
 
         let selectedCacheManagers = cachemanagers.filter(x => x.id === obj.id);
         await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+      };
+
+      let deadHandler = async (rawMsg) => {
+        let m = monitor.prefix('queue');
+        m.count('dead-letters', 1);
+        // TODO: figure out how to access the approximate retry attempt number
+        // and submit that as a message to see how many times a message was
+        // attempted before being dead lettered
+        m.reportError(`Put request failed to complete: ${JSON.stringify(rawMsg)}`);
       };
 
       let queue = new QueueManager({
@@ -196,8 +194,8 @@ let load = base.loader({
   },
 
   cachemanagers: {
-    requires: ['cfg', 'redis', 'profile', 'sqs'],
-    setup: async ({cfg, redis, profile, sqs, sqsQueues}) => {
+    requires: ['cfg', 'redis', 'profile', 'sqs', 'monitor'],
+    setup: async ({cfg, redis, profile, sqs, sqsQueues, monitor}) => {
 
       let cacheManagers = [];
       let s3regions = cfg.backend.s3.regions.split(',');
@@ -232,6 +230,7 @@ let load = base.loader({
           s3: s3,
           acl: cfg.backend.s3.acl,
           lifespan: cfg.backend.s3.lifespan,
+          monitor: monitor.prefix(`s3-${region}`),
         });
 
         await storageProvider.init();
@@ -244,6 +243,7 @@ let load = base.loader({
           storageProvider: storageProvider,
           redirectLimit: cfg.app.redirectLimit,
           sqs: sqs,
+          monitor: monitor.prefix('cache-manager'),
         });
 
         await cacheManager.init();

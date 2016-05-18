@@ -55,6 +55,7 @@ api.declare({
   // parameter after where the urlencoded url ought to be.  If this is any
   // js-truthy value, we know that someone didn't pass in url-encoded url.
   if (error) {
+    this.monitor.count('url-not-url-encoded', 1);
     return res.reportError(
         'InputError',
         'URL Must be URL Encoded!',
@@ -90,10 +91,12 @@ api.declare({
     let result;
 
     do {
+      let startTime = new Date();
       result = await backend.getUrlForRedirect(url);
       // We only want to do validation a single time.  Since we need to use a value
       // that's fetched inside the do-while-loop, I decided to check for the first iteration
       // instead of a more complicated structure
+
       if (x === 0 && (result.status === 'absent' || result.status === 'error')) {
         let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
 
@@ -103,10 +106,17 @@ api.declare({
             url: url,
           });
         }
+        // TODO: Should only status === 'error' be considered a miss?  A file
+        // that's never been requested before could never be in the cache, so
+        // it not being there really is not an error case
+        this.monitor.count(`${service}.${region}.cache-miss`, 1);
+      } else {
+        this.monitor.count(`${service}.${region}.cache-hit`, 1);
       }
 
       if (result.status === 'present') {
         debug(`${logthingy} is present`);
+        this.monitor.measure(`${service}.${region}.cache-hit.time`, new Date() - startTime);
         return res.status(302).location(result.url).json({
           status: result.status,
           url: result.url,
@@ -119,6 +129,8 @@ api.declare({
       } else if (result.status === 'error') {
         debug(`${logthingy} had error, retrying request.  Backend stack: ${result.stack}`);
         backend.requestPut(url);
+        this.monitor.reportError(result.stack);
+        this.monitor.count(`${service}.${region}.cache-error`, 1);
       } else {
         debug(`[alert-opereator] ${logthingy} invalid status: ${result.status}`);
       }
@@ -128,6 +140,8 @@ api.declare({
     // If we get here, we're doing the fallback of redirecting
     // to the original URL because the caching took too long
     debug(`[alert-operator] Redirecting to uncached copy because it took too long ${url}`);
+
+    this.monitor.count(`${service}.${region}.redirect-original`, 1);
 
     return res.status(302).location(url).json({
       url: url,
@@ -196,6 +210,7 @@ api.declare({
 
   let backend = backends[0];
   await backend.purge(url);
+  this.monitor.count(`${service}.${region}.purge-resource`, 1);
   return res.status(204).send();
 });
 

@@ -139,7 +139,7 @@ describe('Integration Tests', () => {
       },
       deadHandler: async (obj) => {
         try {
-          assume(obj).equals(expected);
+          assume(obj.Body).equals(expected);
           q.stop();
           done();
         } catch (err) {
