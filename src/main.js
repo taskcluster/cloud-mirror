@@ -130,7 +130,7 @@ let load = base.loader({
         referencePrefix: 'cloud-mirror/v1/api.json',
         aws: ctx.cfg.aws,
         //component: ctx.cfg.app.statsComponent,
-        monitor: ctx.monitor,
+        monitor: ctx.monitor.prefix('api'),
       },
     ),
   },
