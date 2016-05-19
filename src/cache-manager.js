@@ -28,6 +28,7 @@ class CacheManager {
       'redis', // Redis object where we should cache metadata
       'ensureSSL', // true if we should force only HTTP in redirect links
       'storageProvider', // StorageProvider instance to manage
+      'monitor', // taskcluster-lib-monitor instance
     ]) {
       assert(typeof config[x] !== 'undefined', `CacheManager requires ${x} configuration value`);
       this[x] = config[x];
@@ -45,6 +46,8 @@ class CacheManager {
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+    
+    this.monitor = config.monitor.prefix(this.id);
   }
 
   // Stub for now
@@ -96,19 +99,17 @@ class CacheManager {
         addresses: JSON.stringify(inputUrlInfo.addresses),
       };
 
-      let startTime = new Date();
+      let start = process.hrtime();
 
-      await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
+      await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
 
-      let duration = new Date() - startTime;
+      let d = process.hrtime(start);
+      let duration = d[0] * 1000 + d[1] / 1000000;
 
-      // Here's a datapoint when we have metrics
-      let dataPoint = {
-        id: this.id,
-        url: rawUrl,
-        duration: duration,
-        fileSize: m.bytes,
-      };
+      this.monitor.measure('copy-duration-ms', duration);
+      this.monitor.measure('copy-size-bytes', m.bytes);
+      let speed = m.bytes / duration / 1.024;
+      this.monitor.measure('copy-speed-kbps', speed);
 
       this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
 
@@ -150,6 +151,9 @@ class CacheManager {
         await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
         this.debug(`backfilled cache for ${rawUrl}`);
         outcome.status = 'present';
+
+        this.monitor.count('backfill', 1);
+
       } else {
         outcome.status = 'absent';
       }
@@ -233,19 +237,33 @@ class CacheManager {
     }
 
     let key = this.cacheKey(rawUrl);
-    await this.redis.multi()
-      .hmset(key, cacheEntry)
-      .expire(key, ttl)
-      .execAsync();
+    try {
+      await this.redis.multi()
+        .hmset(key, cacheEntry)
+        .expire(key, ttl)
+        .execAsync();
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-insert-failure', 1);
+    }
   }
 
   async readCacheEntry (rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
-    let result = await this.redis.hgetallAsync(key);
+    let result = undefined
+    try {
+      result = await this.redis.hgetallAsync(key);
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-read-failure', 1);
+    }
     if (result) {
       assert(_.includes(CACHE_STATES, result.status));
+      this.monitor.count('redis.cache-hit', 1);
+    } else {
+      this.monitor.count('redis.cache-miss', 1);
     }
     this.debug(`read cache entry for ${rawUrl}`);
     return result;

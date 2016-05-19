@@ -133,7 +133,7 @@ class QueueManager {
         batchSize: this.deadBatchSize,
         handleMessage: async (rawMsg, done) => {
           try {
-            await this.deadHandler(rawMsg.Body);
+            await this.deadHandler(rawMsg);
             done();
           } catch (err) {
             done(err);
