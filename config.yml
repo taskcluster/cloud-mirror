@@ -9,7 +9,7 @@ defaults:
     ensureSSL: false
     redirectLimit: 20
     sqsBatchSize: 10
-    maxWaitForCachedCopy: 25000 #ms
+    maxWaitForCachedCopy: 28000 #ms
     allowedPatterns:
       - '^https://www\.mozilla\.org/'
       - '^https://s3-us-west-2\.amazonaws\.com/taskcluster-public-artifacts/'
