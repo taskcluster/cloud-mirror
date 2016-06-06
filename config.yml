@@ -31,7 +31,7 @@ defaults:
 
   backend:
     s3:
-      regions: 'us-west-1,us-east-1'
+      regions: 'us-west-1,us-east-1,eu-central-1'
       acl: 'public-read'
       bucketBase: 'cloud-mirror-'
       lifespan: 1 # in days, how long should S3 keep this
