@@ -252,7 +252,7 @@ class CacheManager {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
-    let result = undefined
+    let result = undefined;
     try {
       result = await this.redis.hgetallAsync(key);
     } catch (err) {
