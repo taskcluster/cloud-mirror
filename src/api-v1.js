@@ -199,7 +199,7 @@ api.declare({
   let logthingy = `${url} in ${service}/${region}`;
   debug(`Attempting to purge ${logthingy}`);
   // This is the ID that we need to find a backend for
-  let incomingId = `${service}-${region}`;
+  let incomingId = `${service}_${region}`;
   
   // Let's pick which backend to use.  In this case, we're looking to find the
   // only backend known that matches the potential id

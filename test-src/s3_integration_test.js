@@ -290,4 +290,45 @@ describe('Integration Tests', () => {
     let reparsedDate = new Date(parsedDate.toISOString());
     assume(parsedDate).deeply.equals(reparsedDate);
   });
+
+  it('should purge correctly', async () => {
+    let testUrl = httpbin + '/bytes/1024';
+    let expectedRedirect = baseUrl + '/redirect/s3/us-west-1/';
+    expectedRedirect += encodeURIComponent(testUrl);
+    let purgeUrl = baseUrl + '/purge/s3/us-west-1/';
+    purgeUrl += encodeURIComponent(testUrl);
+
+    // Request the response from cloud-mirror so we can see which
+    // URL it's going to redirect us to
+    let actual = await request({
+      url: expectedRedirect,
+      followRedirect: false,
+      simple: false,
+      resolveWithFullResponse: true,
+    });
+
+    assume(actual.statusCode).equals(302);
+    assertRedirected(testUrl, actual.headers.location);
+    let bodyJson = JSON.parse(actual.body);
+    assume(bodyJson.status).equals('present');
+
+    let beforePurge1 = await request(expectedRedirect);
+    let beforePurge2 = await request(expectedRedirect);
+
+    let purge = await request({
+      url: purgeUrl,
+      followRedirect: false,
+      simple: false,
+      resolveWithFullResponse: true,
+      method: 'DELETE',
+    });
+
+    assume(purge.statusCode).equals(204);
+
+    let afterPurge = await request(expectedRedirect);
+
+    assume(beforePurge1.body).equals(beforePurge2.body);
+    assume(afterPurge.body).not.equals(beforePurge1.body);
+
+  });
 });
