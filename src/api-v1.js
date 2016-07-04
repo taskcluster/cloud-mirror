@@ -99,7 +99,7 @@ api.declare({
       // instead of a more complicated structure
 
       if (x === 0 && (result.status === 'absent' || result.status === 'error')) {
-        let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+        let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
 
         if (!validUrl) {
           return res.status(403).json({

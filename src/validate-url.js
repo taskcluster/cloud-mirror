@@ -18,7 +18,12 @@ let url = require('url');
  * This will return `false` if the url is invalid, an object with information if
  * it is valid and will throw if an error occured while doing the redirects
  */
-async function validateUrl (firstUrl, allowedPatterns = [/.*/], redirectLimit = 30, ensureSSL = true) {
+async function validateUrl (
+    firstUrl,
+    allowedPatterns = [/.*/],
+    redirectLimit = 30,
+    ensureSSL = true,
+    monitor = undefined) {
   // Number of redirects to follow
   let addresses = [];
 
@@ -89,8 +94,13 @@ async function validateUrl (firstUrl, allowedPatterns = [/.*/], redirectLimit = 
       u = url.resolve(u, newU);
     } else {
       // Consider using an exponential backoff and retry here
-      let err = new Error('HTTP Error while redirecting');
+      let err = new Error(`error reading input url.  ${sc}`);
       err.code = 'HTTPError';
+      if (monitor) {
+        monitor.count('bad-input', 1);
+        monitor.count(`bad-input.${sc}`, 1);
+        monitor.reportError(err);
+      }
       throw err;
     }
   }

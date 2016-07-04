@@ -182,7 +182,7 @@ class CacheManager {
 
   async createUrlReadStream (rawUrl) {
     assert(rawUrl);
-    let urlInfo = await validateUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL);
+    let urlInfo = await validateUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
 
     if (!urlInfo) {
       throw new Error('URL is invalid: ' + rawUrl);
