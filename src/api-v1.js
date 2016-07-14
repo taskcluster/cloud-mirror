@@ -99,7 +99,15 @@ api.declare({
       // instead of a more complicated structure
 
       if (x === 0 && (result.status === 'absent' || result.status === 'error')) {
-        let validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
+        let validUrl;
+        try {
+          validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
+        } catch (err) {
+          return res.status(err.httpCode).json({
+            msg: 'upstream location returns error.  propogating',
+            upstreamHttpCode: err.httpCode,
+          });
+        }
 
         if (!validUrl) {
           return res.status(403).json({

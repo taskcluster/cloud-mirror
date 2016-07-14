@@ -96,6 +96,7 @@ async function validateUrl (
       // Consider using an exponential backoff and retry here
       let err = new Error(`error reading input url.  ${sc}`);
       err.code = 'HTTPError';
+      err.httpCode = sc;
       if (monitor) {
         monitor.count('bad-input', 1);
         monitor.count(`bad-input.${sc}`, 1);
