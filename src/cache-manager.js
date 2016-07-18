@@ -284,6 +284,8 @@ class CacheManager {
       queue.send({
         id: this.id,
         url: rawUrl,
+        requested: new Date(),
+        action: 'putFile',
       });
     }));
     this.debug(`sent put request for ${rawUrl}`);
