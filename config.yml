@@ -8,7 +8,7 @@ defaults:
 
     ensureSSL: false
     redirectLimit: 20
-    sqsBatchSize: 10
+    sqsBatchSize: 2
     maxWaitForCachedCopy: 28000 #ms
     allowedPatterns:
       - '^https://www\.mozilla\.org/'
