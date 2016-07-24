@@ -122,12 +122,7 @@ class QueueManager {
     }
 
     this.qid = slugid.nice();
-  }
 
-  /**
-   * Declare required queue and dead letter queue, set up consumers
-   */
-  async init () {
     // Create consumer for normal queue
     this.consumer = SQSConsumer.create({
       queueUrl: this.queueUrl,

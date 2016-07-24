@@ -158,7 +158,7 @@ let load = base.loader({
 
   queueUrl: {
     requires: ['cfg', 'queueUrlFactory', 'profile'],
-    setup: async ({cfg, quf, profile}) => quf(`cloud-mirror-${profile}`),
+    setup: async ({cfg, queueUrlFactory, profile}) => queueUrlFactory(`cloud-mirror-${profile}`),
   },
 
   queueFactory: {
@@ -193,8 +193,6 @@ let load = base.loader({
           deadHandler: deadHandler,
           deadQueueUrl: queueUrl.deadQueueUrl,
         });
-
-        await queue.init();
 
         return queue;
       };
