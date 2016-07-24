@@ -14,7 +14,6 @@ let _ = require('lodash');
 let assert = require('assert');
 let taskcluster = require('taskcluster-client');
 let uuid = require('uuid');
-
 let aws = require('aws-sdk-promise');
 let CacheManager = require('./cache-manager').CacheManager;
 let QueueManager = require('./queue-manager').QueueManager;
@@ -30,7 +29,6 @@ bluebird.promisifyAll(redis.Multi.prototype);
 let v1 = require('./api-v1');
 
 let monitoring = require('taskcluster-lib-monitor');
-
 
 let testBucket;
 
@@ -148,9 +146,19 @@ let load = base.loader({
     },
   },
 
+  // This is so we can do tests with different queues
+  queueUrlFactory: {
+    requires: ['cfg', 'sqs'],
+    setup: async ({cfg, sqs}) => {
+      return async function (name) {
+        return initQueue(sqs, name);
+      };
+    },
+  },
+
   queueUrl: {
-    requires: ['cfg', 'sqs', 'profile'],
-    setup: async ({cfg, sqs, profile}) => initQueue(sqs, `cloud-mirror-${profile}`),
+    requires: ['cfg', 'queueUrlFactory', 'profile'],
+    setup: async ({cfg, quf, profile}) => quf(`cloud-mirror-${profile}`),
   },
 
   queueFactory: {

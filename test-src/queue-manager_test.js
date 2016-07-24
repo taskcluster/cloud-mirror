@@ -18,11 +18,14 @@ describe('Integration Tests', () => {
   let sandbox;
   let cfg;
   let sqs;
+  let initQ;
+  let qurlf;
   let q;
 
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
     sqs = await main('sqs', {process: 'sqs', profile: 'test'});
+    qurlf = await main('queueUrlFactory', {process: 'sqs', profile: 'test'});
   });
 
   beforeEach(async () => {
@@ -39,8 +42,11 @@ describe('Integration Tests', () => {
   it('should be able to send and receive message', async function(done) {
     let expected = {uuid: uuid.v4()};
 
+    let qurl = await qurlf('test-1');
+
     let q = new subject({
-      queueName: 'testingqueue1',
+      queueUrl: qurl.queueUrl,
+      deadQueueUrl: qurl.deadQueueUrl,
       sqs: sqs,
       batchSize: 1,
       maxReceiveCount: 1,
@@ -70,8 +76,11 @@ describe('Integration Tests', () => {
   it('should dead letter messages when the handler fails', async function(done) {
     let expected = {uuid: uuid.v4()};
 
+    let qurl = await qurlf('test-2');
+
     let q = new subject({
-      queueName: 'testingqueue2',
+      queueUrl: qurl.queueUrl,
+      deadQueueUrl: qurl.deadQueueUrl,
       sqs: sqs,
       batchSize: 1,
       maxReceiveCount: 1,
@@ -101,8 +110,11 @@ describe('Integration Tests', () => {
   it('should refuse to send messages with encoding problems', async function(done) {
     let expected = '{\'not json\'}';
 
+    let qurl = await qurlf('test-3');
+
     let q = new subject({
-      queueName: 'testingqueue3',
+      queueUrl: qurl.queueUrl,
+      deadQueueUrl: qurl.deadQueueUrl,
       sqs: sqs,
       batchSize: 1,
       maxReceiveCount: 1,
@@ -128,8 +140,11 @@ describe('Integration Tests', () => {
   it('should refuse to process messages with encoding problems', async function(done) {
     let expected = '{\'not json\'}';
 
+    let qurl = await qurlf('test-4');
+
     let q = new subject({
-      queueName: 'testingqueue4',
+      queueUrl: qurl.queueUrl,
+      deadQueueUrl: qurl.deadQueueUrl,
       sqs: sqs,
       batchSize: 1,
       maxReceiveCount: 1,
