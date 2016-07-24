@@ -1,7 +1,65 @@
 let SQSConsumer = require('sqs-consumer');
-let debugModule = require('debug');
+let debug = require('debug')('cloud-mirror:queue');
 let assert = require('assert');
 let _ = require('lodash');
+
+
+/**
+ * Initialize a queue
+ * 
+ * Options:
+ *  - sqs: instance of an SQS client with which to perform operations
+ *  - queueName: human readable name of the main queue to consume from and insert into
+ *  - maxReceiveCount (optional): maximum number of times to try processing this message
+ *    before giving up
+ *  - deadLetterSuffix (optional): append this suffix to the name of the normal work queue
+ *    to determine the name of the dead letter queue.
+ *
+ * Returns:
+ *  {
+ *    queueUrl: '...',
+      deadQueueUrl: '...'
+ *  }
+ */
+async function initQueue (sqs, queueName, maxReceiveCount = 5, deadLetterSuffix = '_dead') {
+  assert(typeof sqs === 'object', 'Must provide SQS instance as object');
+  assert(typeof queueName === 'string', 'Must provide queueName as string');
+  assert(typeof maxReceiveCount === 'number', 'Must provide maxReceiveCount as number');
+  assert(typeof deadLetterSuffix === 'string', 'Must provide deadLetterSuffix as string');
+
+  let awsRes;
+  let queueUrl;
+  let deadQueueUrl;
+  let deadQueueName = queueName + deadLetterSuffix;
+
+  // We need to create the dead letter queue first because we need to query the ARN
+  // of the queue so that we can set it when creating the main queue
+  awsRes = await sqs.createQueue({
+    QueueName: deadQueueName,
+  }).promise();
+  deadQueueUrl = awsRes.data.QueueUrl;
+
+    // Now we'll find the dead letter put queue's ARN
+  awsRes = await sqs.getQueueAttributes({
+    QueueUrl: deadQueueUrl,
+    AttributeNames: ['QueueArn'],
+  }).promise();
+  let deadQueueArn = awsRes.data.Attributes.QueueArn;
+
+  awsRes = await sqs.createQueue({
+    QueueName: queueName,
+    Attributes: {
+      RedrivePolicy: JSON.stringify({
+        maxReceiveCount: maxReceiveCount,
+        deadLetterTargetArn: deadQueueArn,
+      }),
+    },
+  }).promise();
+
+  queueUrl = awsRes.data.QueueUrl;
+
+  return {queueUrl, deadQueueUrl};
+}
 
 /**
  * A queue manager wraps SQS in some convenience methods and a dead letter
@@ -15,7 +73,7 @@ let _ = require('lodash');
  * rejection in the first place.
  * 
  * Parameters for this class are as follows:
- * queueName:
+ * queueUrl:
  *    This is the friendly name for the queue that's being managed.  It will be
  *    used to declare the queues required.  This will be a component of the ARN
  *    and the URL for the queue.  The dead queue will always be this value with
@@ -31,11 +89,7 @@ let _ = require('lodash');
  *    reprsenting the parsed JSON message body.  The callback from the SQS
  *    message will be called with no value on success and with the rejection
  *    value on failure.
- * maxReceiveCount (optional):
- *    The maximum number of times a message should fail to be processed before
- *    give up and dead lettering it
- * deadQueueName (optional):
- *    Name to give the dead letter queue.  Defaults to queueName + '_dead'
+ * deadQueueUrl (optional): URL to the dead letter queue
  * deadHandler (optional):
  *    Like the handler parameter, except for the dead letter queue and does not
  *    attempt to parse the message in any way at all.  If an error occurs, the
@@ -47,7 +101,7 @@ let _ = require('lodash');
 class QueueManager {
   constructor (config) {
     for (let x of [
-      'queueName', // SQS queue to listen on for copy requests
+      'queueUrl', // SQS Queue URL to listen to
       'sqs', // SQS Instance to listen and publish on
       'batchSize', // Number of concurrent messages to process
       'handler', // Handler message for normal messages
@@ -57,62 +111,28 @@ class QueueManager {
     }
 
     if (config.deadHandler) {
+      assert(config.deadQueueUrl, 'When using a dead letter queue, must provide url');
       this.deadHandler = config.deadHandler;
+      this.deadQueueUrl = config.deadQueueUrl;
       this.deadBatchSize = config.deadBatchSize || config.batchSize;
     }
-
-    this.maxReceiveCount = config.maxReceiveCount || 5;
-
-    this.deadQueueName = config.deadQueueName || this.queueName + '_dead';
-    this.debug = debugModule('cloud-mirror:queue:' + this.queueName);
   }
 
   /**
    * Declare required queue and dead letter queue, set up consumers
    */
   async init () {
-    let awsRes = await this.sqs.createQueue({
-      QueueName: this.deadQueueName,
-    }).promise();
-    this.deadQueueUrl = awsRes.data.QueueUrl;
-
-    // Now we'll find the dead letter put queue's ARN
-    awsRes = await this.sqs.getQueueAttributes({
-      QueueUrl: this.deadQueueUrl,
-      AttributeNames: ['QueueArn'],
-    }).promise();
-    this.deadQueueArn = awsRes.data.Attributes.QueueArn;
-
-    // Now, we'll create the real queue
-    this.debug('creating sqs put queue');
-    awsRes = await this.sqs.createQueue({
-      QueueName: this.queueName,
-      Attributes: {
-        RedrivePolicy: JSON.stringify({
-          maxReceiveCount: this.maxReceiveCount,
-          deadLetterTargetArn: this.deadQueueArn,
-        }),
-      },
-    }).promise();
-
-    this.queueUrl = awsRes.data.QueueUrl;
-
-    this.debug({
-      queueUrl: this.queueUrl,
-      deadQueueUrl: this.deadQueueUrl,
-    });
-
     // Create consumer for normal queue
     this.consumer = SQSConsumer.create({
       queueUrl: this.queueUrl,
       batchSize: this.batchSize,
       handleMessage: async (rawMsg, done) => {
-        this.debug(`Recevied message for ${this.queueName}`);
+        debug(`Recevied message on ${this.queueUrl}`);
         let msg;
         try {
           msg = JSON.parse(rawMsg.Body);
         } catch (err) {
-          this.debug(`Failed to JSON.parse message for ${this.queueName}: ${rawMsg.Body}`); 
+          debug(`Failed to JSON.parse message on ${this.queueUrl}: ${rawMsg.Body}`); 
           return done(err);
         }
 
@@ -146,7 +166,7 @@ class QueueManager {
   }
 
   start () {
-    this.debug('listneing to put queue ' + this.queueUrl);
+    debug(`listneing to put queue ${this.queueUrl}`);
     this.consumer.start();
     if (this.deadConsumer) {
       this.deadConsumer.start();
@@ -154,7 +174,7 @@ class QueueManager {
   }
 
   stop () {
-    this.debug('no longer listneing to put queue ' + this.queueUrl);
+    debug(`no longer listneing to put queue ${this.queueUrl}`);
     this.consumer.stop();
     if (this.deadConsumer) {
       this.deadConsumer.stop();
@@ -162,30 +182,30 @@ class QueueManager {
   }
 
   async purge () {
-    this.debug(`purging ${this.queueName}`);
+    debug(`purging ${this.queueUrl}`);
     await this.sqs.purgeQueue({
       QueueUrl: this.queueUrl,
     }).promise();
   }
 
   async purgeDead () {
-    this.debug(`purging dead queue for ${this.queueName} ${this.deadQueueName}`);
+    debug(`purging dead queue for ${this.queueUrl} ${this.deadQueueUrl}`);
     await this.sqs.purgeQueue({
       QueueUrl: this.deadQueueUrl,
     }).promise();
   }
 
   async send (msg) {
-    this.debug('sending message');
+    debug(`sending message to ${this.queueUrl}`);
     if (typeof msg !== 'object') {
-      throw new Error(`All messages sent to ${this.queueName} must be object, not ${typeof msg}`); 
+      throw new Error(`All messages sent to ${this.queueUrl} must be object, not ${typeof msg}`); 
     }
 
     let jsonMsg;
     try {
       jsonMsg = JSON.stringify(msg);
     } catch (err) {
-      throw new Error(`All messages sent to ${this.queueName} must be JSON serializable`); 
+      throw new Error(`All messages sent to ${this.queueUrl} must be JSON serializable`); 
     }
 
     let outcome = await this.sqs.sendMessage({
@@ -193,7 +213,7 @@ class QueueManager {
       MessageBody: jsonMsg,
     }).promise();
 
-    this.debug('sent message');
+    debug('sent message');
     return outcome;
   }
 
@@ -201,4 +221,5 @@ class QueueManager {
 
 module.exports = {
   QueueManager,
+  initQueue,
 };

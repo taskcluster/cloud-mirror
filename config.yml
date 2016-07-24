@@ -82,7 +82,7 @@ production:
 development:
   app:
     ensureSSL: false
-    maxWaitForCachedCopy: 5000 #ms
+    maxWaitForCachedCopy: 10000 #ms
     allowedPatterns:
       - '^.*/'
   redis:

@@ -16,6 +16,7 @@ let uuid = require('uuid');
 let aws = require('aws-sdk-promise');
 let CacheManager = require('./cache-manager').CacheManager;
 let QueueManager = require('./queue-manager').QueueManager;
+let initQueue = require('./queue-manager').initQueue;
 let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
 
 let bluebird = require('bluebird');
@@ -145,9 +146,15 @@ let load = base.loader({
     },
   },
 
+  queueUrl: {
+    requires: ['cfg', 'sqs', 'profile'],
+    setup: async ({cfg, sqs, profile}) => initQueue(sqs, `cloud-mirror-${profile}`),
+  },
+
   queue: {
-    requires: ['cachemanagers', 'cfg', 'sqs', 'profile', 'monitor'],
-    setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues, monitor}) => {
+    requires: ['cachemanagers', 'cfg', 'sqs', 'queueUrl', 'profile', 'monitor'],
+    setup: async ({cachemanagers, cfg, sqs, queueUrl, profile, monitor}) => {
+      let m = monitor.prefix('queue');
 
       let handler = async (obj) => {
         assert(obj.id, 'must provide id in queue request');
@@ -160,7 +167,6 @@ let load = base.loader({
       };
 
       let deadHandler = async (rawMsg) => {
-        let m = monitor.prefix('queue');
         m.count('dead-letters', 1);
         // TODO: figure out how to access the approximate retry attempt number
         // and submit that as a message to see how many times a message was
@@ -169,10 +175,12 @@ let load = base.loader({
       };
 
       let queue = new QueueManager({
-        queueName: `cloud-mirror-${profile}`,
         sqs: sqs,
         batchSize: cfg.app.sqsBatchSize,
         handler: handler,
+        queueUrl: queueUrl.queueUrl,
+        deadHandler: deadHandler,
+        deadQueueUrl: queueUrl.deadQueueUrl,
       });
 
       await queue.init();
@@ -195,7 +203,7 @@ let load = base.loader({
 
   cachemanagers: {
     requires: ['cfg', 'redis', 'profile', 'sqs', 'monitor'],
-    setup: async ({cfg, redis, profile, sqs, sqsQueues, monitor}) => {
+    setup: async ({cfg, redis, profile, sqs, monitor}) => {
 
       let cacheManagers = [];
       let s3regions = cfg.backend.s3.regions.split(',');
