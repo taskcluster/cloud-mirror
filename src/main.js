@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+require('source-map-support').install();
+
 let debugModule = require('debug');
 let debug = debugModule('cloud-proxy:main');
 let base = {
@@ -28,6 +30,7 @@ bluebird.promisifyAll(redis.Multi.prototype);
 let v1 = require('./api-v1');
 
 let monitoring = require('taskcluster-lib-monitor');
+
 
 let testBucket;
 
@@ -111,27 +114,26 @@ let load = base.loader({
   },
 
   api: {
-    requires: ['cfg', 'validator', 'redis', 'cachemanagers', 'queue', 'monitor'],
-    setup: (ctx) => v1.setup(
+    requires: ['cfg', 'validator', 'redis', 'registeredCacheManagers', 'monitor'],
+    setup: ({cfg, validator, redis, registeredCacheManagers, monitor}) => v1.setup(
       {
         context: {
-          validator: ctx.validator,
-          redis: ctx.redis,
-          cacheManagers: ctx.cachemanagers,
-          maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
-          allowedPatterns: compilePatterns(ctx.cfg.app.allowedPatterns),
-          redirectLimit: ctx.cfg.app.redirectLimit,
-          ensureSSL: ctx.cfg.app.ensureSSL,
-          monitor: ctx.monitor.prefix('api'),
+          validator: validator,
+          redis: redis,
+          cacheManagers: registeredCacheManagers,
+          maxWaitForCachedCopy: cfg.app.maxWaitForCachedCopy,
+          allowedPatterns: compilePatterns(cfg.app.allowedPatterns),
+          redirectLimit: cfg.app.redirectLimit,
+          ensureSSL: cfg.app.ensureSSL,
+          monitor: monitor.prefix('api'),
         },
-        validator: ctx.validator,
-        authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
-        publish: ctx.cfg.app.publishMetaData,
-        baseUrl: ctx.cfg.server.publicUrl + '/v1',
+        validator: validator,
+        authBaseUrl: cfg.taskcluster.authBaseUrl,
+        publish: cfg.app.publishMetaData,
+        baseUrl: cfg.server.publicUrl + '/v1',
         referencePrefix: 'cloud-mirror/v1/api.json',
-        aws: ctx.cfg.aws,
-        //component: ctx.cfg.app.statsComponent,
-        monitor: ctx.monitor.prefix('api'),
+        aws: cfg.aws,
+        monitor: monitor.prefix('api'),
       },
     ),
   },
@@ -152,8 +154,8 @@ let load = base.loader({
   },
 
   queue: {
-    requires: ['cachemanagers', 'cfg', 'sqs', 'queueUrl', 'profile', 'monitor'],
-    setup: async ({cachemanagers, cfg, sqs, queueUrl, profile, monitor}) => {
+    requires: ['cfg', 'sqs', 'queueUrl', 'cacheManagers', 'profile', 'monitor'],
+    setup: async ({cfg, sqs, queueUrl, cacheManagers, profile, monitor}) => {
       let m = monitor.prefix('queue');
 
       let handler = async (obj) => {
@@ -162,7 +164,7 @@ let load = base.loader({
         assert(obj.url, 'must provide url in queue request');
         assert(typeof obj.url === 'string', 'url must be string');
 
-        let selectedCacheManagers = cachemanagers.filter(x => x.id === obj.id);
+        let selectedCacheManagers = cacheManagers.filter(x => x.id === obj.id);
         await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
       };
 
@@ -185,10 +187,6 @@ let load = base.loader({
 
       await queue.init();
 
-      cachemanagers.forEach(manager => {
-        manager.registerQueue(queue);
-      });
-
       return queue;
     },
   },
@@ -201,9 +199,9 @@ let load = base.loader({
     },
   },
 
-  cachemanagers: {
-    requires: ['cfg', 'redis', 'profile', 'sqs', 'monitor'],
-    setup: async ({cfg, redis, profile, sqs, monitor}) => {
+  cacheManagers: {
+    requires: ['cfg', 'redis', 'profile', 'monitor'],
+    setup: async ({cfg, redis, profile, monitor}) => {
 
       let cacheManagers = [];
       let s3regions = cfg.backend.s3.regions.split(',');
@@ -250,7 +248,6 @@ let load = base.loader({
           ensureSSL: cfg.app.ensureSSL,
           storageProvider: storageProvider,
           redirectLimit: cfg.app.redirectLimit,
-          sqs: sqs,
           monitor: monitor.prefix('cache-manager'),
         });
 
@@ -263,10 +260,22 @@ let load = base.loader({
     },
   },
 
+  // This needs to be a split out module because we'd otherwise
+  // have a depenency loop of qf -> cm -> qf...
+  registeredCacheManagers: {
+    requires: ['cacheManagers', 'queue'],
+    setup: async ({cacheManagers, queue}) => {
+      for (let cm of cacheManagers) {
+        cm.registerQueue(queue);
+      }
+      return cacheManagers; 
+    },
+  },
+
   all: {
     requires: ['backend', 'server'],
-    setup: async ({listeningcachemanagers, server}) => {
-      await Promise.race([listeningcachemanagers, server]);
+    setup: async ({backend, server}) => {
+      await Promise.race([backend, server]);
     },
   },
 

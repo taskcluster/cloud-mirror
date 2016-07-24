@@ -12,7 +12,6 @@ let request = require('request').defaults({
 let fs = require('fs');
 let stream = require('stream');
 let meter = require('stream-meter');
-let SQSConsumer = require('sqs-consumer');
 let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
