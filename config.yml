@@ -30,6 +30,7 @@ defaults:
     trustProxy: false
 
   backend:
+    count: 10
     s3:
       regions: 'us-west-1,us-east-1,eu-central-1'
       acl: 'public-read'
@@ -92,6 +93,8 @@ development:
     env: development
     publicUrl: http://localhost:5555
 test:
+  backend:
+    count: 10
   app:
     ensureSSL: true
     maxWaitForCachedCopy: 5000 #ms

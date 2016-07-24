@@ -2,6 +2,7 @@ let SQSConsumer = require('sqs-consumer');
 let debug = require('debug')('cloud-mirror:queue');
 let assert = require('assert');
 let _ = require('lodash');
+let slugid = require('slugid');
 
 
 /**
@@ -38,6 +39,7 @@ async function initQueue (sqs, queueName, maxReceiveCount = 5, deadLetterSuffix 
     QueueName: deadQueueName,
   }).promise();
   deadQueueUrl = awsRes.data.QueueUrl;
+  debug(`created dead queue: ${deadQueueUrl}`);
 
     // Now we'll find the dead letter put queue's ARN
   awsRes = await sqs.getQueueAttributes({
@@ -57,6 +59,8 @@ async function initQueue (sqs, queueName, maxReceiveCount = 5, deadLetterSuffix 
   }).promise();
 
   queueUrl = awsRes.data.QueueUrl;
+
+  debug(`created queue: ${queueUrl}`);
 
   return {queueUrl, deadQueueUrl};
 }
@@ -116,6 +120,8 @@ class QueueManager {
       this.deadQueueUrl = config.deadQueueUrl;
       this.deadBatchSize = config.deadBatchSize || config.batchSize;
     }
+
+    this.qid = slugid.nice();
   }
 
   /**
@@ -127,12 +133,12 @@ class QueueManager {
       queueUrl: this.queueUrl,
       batchSize: this.batchSize,
       handleMessage: async (rawMsg, done) => {
-        debug(`Recevied message on ${this.queueUrl}`);
+        debug(`Recevied message on ${this.queueUrl} ${this.qid}`);
         let msg;
         try {
           msg = JSON.parse(rawMsg.Body);
         } catch (err) {
-          debug(`Failed to JSON.parse message on ${this.queueUrl}: ${rawMsg.Body}`); 
+          debug(`Failed to JSON.parse message on ${this.queueUrl} ${this.qid}: ${rawMsg.Body}`); 
           return done(err);
         }
 
@@ -166,7 +172,7 @@ class QueueManager {
   }
 
   start () {
-    debug(`listneing to put queue ${this.queueUrl}`);
+    debug(`listneing to put queue ${this.queueUrl} ${this.qid}`);
     this.consumer.start();
     if (this.deadConsumer) {
       this.deadConsumer.start();
@@ -174,7 +180,7 @@ class QueueManager {
   }
 
   stop () {
-    debug(`no longer listneing to put queue ${this.queueUrl}`);
+    debug(`no longer listneing to put queue ${this.queueUrl} ${this.qid}`);
     this.consumer.stop();
     if (this.deadConsumer) {
       this.deadConsumer.stop();
@@ -182,21 +188,21 @@ class QueueManager {
   }
 
   async purge () {
-    debug(`purging ${this.queueUrl}`);
+    debug(`purging ${this.queueUrl} ${this.qid}`);
     await this.sqs.purgeQueue({
       QueueUrl: this.queueUrl,
     }).promise();
   }
 
   async purgeDead () {
-    debug(`purging dead queue for ${this.queueUrl} ${this.deadQueueUrl}`);
+    debug(`purging dead queue for ${this.queueUrl} ${this.deadQueueUrl} ${this.qid}`);
     await this.sqs.purgeQueue({
       QueueUrl: this.deadQueueUrl,
     }).promise();
   }
 
   async send (msg) {
-    debug(`sending message to ${this.queueUrl}`);
+    debug(`sending message to ${this.queueUrl} ${this.qid}`);
     if (typeof msg !== 'object') {
       throw new Error(`All messages sent to ${this.queueUrl} must be object, not ${typeof msg}`); 
     }
@@ -205,7 +211,7 @@ class QueueManager {
     try {
       jsonMsg = JSON.stringify(msg);
     } catch (err) {
-      throw new Error(`All messages sent to ${this.queueUrl} must be JSON serializable`); 
+      throw new Error(`All messages sent to ${this.queueUrl} ${this.qid} must be JSON serializable`); 
     }
 
     let outcome = await this.sqs.sendMessage({

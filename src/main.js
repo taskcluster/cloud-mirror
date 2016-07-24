@@ -153,49 +153,56 @@ let load = base.loader({
     setup: async ({cfg, sqs, profile}) => initQueue(sqs, `cloud-mirror-${profile}`),
   },
 
-  queue: {
+  queueFactory: {
     requires: ['cfg', 'sqs', 'queueUrl', 'cacheManagers', 'profile', 'monitor'],
     setup: async ({cfg, sqs, queueUrl, cacheManagers, profile, monitor}) => {
-      let m = monitor.prefix('queue');
+      return async () => {
+        let m = monitor.prefix('queue');
 
-      let handler = async (obj) => {
-        assert(obj.id, 'must provide id in queue request');
-        assert(typeof obj.id === 'string', 'id must be string');
-        assert(obj.url, 'must provide url in queue request');
-        assert(typeof obj.url === 'string', 'url must be string');
+        let handler = async (obj) => {
+          assert(obj.id, 'must provide id in queue request');
+          assert(typeof obj.id === 'string', 'id must be string');
+          assert(obj.url, 'must provide url in queue request');
+          assert(typeof obj.url === 'string', 'url must be string');
 
-        let selectedCacheManagers = cacheManagers.filter(x => x.id === obj.id);
-        await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+          let selectedCacheManagers = cacheManagers.filter(x => x.id === obj.id);
+          await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+        };
+
+        let deadHandler = async (rawMsg) => {
+          m.count('dead-letters', 1);
+          // TODO: figure out how to access the approximate retry attempt number
+          // and submit that as a message to see how many times a message was
+          // attempted before being dead lettered
+          m.reportError(`Put request failed to complete: ${JSON.stringify(rawMsg)}`);
+        };
+
+        let queue = new QueueManager({
+          sqs: sqs,
+          batchSize: cfg.app.sqsBatchSize,
+          handler: handler,
+          queueUrl: queueUrl.queueUrl,
+          deadHandler: deadHandler,
+          deadQueueUrl: queueUrl.deadQueueUrl,
+        });
+
+        await queue.init();
+
+        return queue;
       };
-
-      let deadHandler = async (rawMsg) => {
-        m.count('dead-letters', 1);
-        // TODO: figure out how to access the approximate retry attempt number
-        // and submit that as a message to see how many times a message was
-        // attempted before being dead lettered
-        m.reportError(`Put request failed to complete: ${JSON.stringify(rawMsg)}`);
-      };
-
-      let queue = new QueueManager({
-        sqs: sqs,
-        batchSize: cfg.app.sqsBatchSize,
-        handler: handler,
-        queueUrl: queueUrl.queueUrl,
-        deadHandler: deadHandler,
-        deadQueueUrl: queueUrl.deadQueueUrl,
-      });
-
-      await queue.init();
-
-      return queue;
     },
   },
 
   backend: {
-    requires: ['queue'],
-    setup: async ({queue}) => {
-      queue.start();
-      return queue;
+    requires: ['cfg', 'queueFactory'],
+    setup: async ({cfg, queueFactory}) => {
+      let queues = [];
+      for (let x = 0; x < cfg.backend.count; x++) { 
+        let queue = await queueFactory();
+        queues.push(queue);
+        queue.start();
+      }
+      return queues;
     },
   },
 
@@ -263,8 +270,9 @@ let load = base.loader({
   // This needs to be a split out module because we'd otherwise
   // have a depenency loop of qf -> cm -> qf...
   registeredCacheManagers: {
-    requires: ['cacheManagers', 'queue'],
-    setup: async ({cacheManagers, queue}) => {
+    requires: ['cacheManagers', 'queueFactory'],
+    setup: async ({cacheManagers, queueFactory}) => {
+      let queue = await queueFactory();
       for (let cm of cacheManagers) {
         cm.registerQueue(queue);
       }

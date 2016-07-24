@@ -38,6 +38,7 @@
     "request-promise": "^3.0.0",
     "schema-validator-publisher": "^0.8.8",
     "sinon": "^1.17.3",
+    "slugid": "^1.1.0",
     "source-map-support": "^0.4.0",
     "sqs-consumer": "^3.0.0",
     "stream-meter": "^1.0.3",
