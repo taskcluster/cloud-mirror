@@ -282,7 +282,37 @@ let load = base.loader({
       for (let cm of cacheManagers) {
         cm.registerQueue(queue);
       }
-      return cacheManagers; 
+      return cacheManagers;
+    },
+  },
+
+  // We need to be able to monitor how many messages live in the queue.  This
+  // is not intended to be long living code and so has a bunch of things
+  // hardcoded in.  If you'd like, feel free to put this into config.yml
+  queueMonitor: {
+    requires: ['monitor', 'sqs', 'profile', 'queueUrl'],
+    setup: async ({monitor, sqs, profile, queueUrl}) => {
+      let m = monitor.prefix(`cloud-mirror.${profile}.sqs-messages`);
+
+      async function x () {
+        console.log('checking on sqs queue');
+        let result = await sqs.getQueueAttributes({
+          QueueUrl: queueUrl.queueUrl,
+          AttributeNames: [
+            'ApproximateNumberOfMessages',
+            'ApproximateNumberOfMessagesNotVisible',
+          ],
+        }).promise();
+        let messagesWaiting = parseInt(result.data.Attributes.ApproximateNumberOfMessages, 10);
+        let messagesInProcessing = parseInt(result.data.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
+
+        m.measure('waiting', messagesWaiting);
+        m.measure('in-flight', messagesInProcessing);
+        console.log(`There are ${messagesWaiting} waiting and ${messagesInProcessing} in flight`);
+        setTimeout(x, 10000);
+      }
+
+      setTimeout(x, 0);
     },
   },
 

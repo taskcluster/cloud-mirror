@@ -51,6 +51,7 @@ async function initQueue (sqs, queueName, maxReceiveCount = 5, deadLetterSuffix 
   awsRes = await sqs.createQueue({
     QueueName: queueName,
     Attributes: {
+      VisibilityTimeout: '1000',
       RedrivePolicy: JSON.stringify({
         maxReceiveCount: maxReceiveCount,
         deadLetterTargetArn: deadQueueArn,
