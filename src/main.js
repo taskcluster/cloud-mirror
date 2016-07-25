@@ -149,18 +149,25 @@ let load = base.loader({
     requires: ['cachemanagers', 'cfg', 'sqs', 'profile', 'monitor'],
     setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues, monitor}) => {
 
+      let m = monitor.prefix('queue');
+
       let handler = async (obj) => {
         assert(obj.id, 'must provide id in queue request');
         assert(typeof obj.id === 'string', 'id must be string');
         assert(obj.url, 'must provide url in queue request');
         assert(typeof obj.url === 'string', 'url must be string');
 
+        if (obj.requested) {
+          let requested = new Date(obj.requested);
+          let diff = new Date() - requested;
+          m.measure('sqs-latency', diff);
+        }
+
         let selectedCacheManagers = cachemanagers.filter(x => x.id === obj.id);
         await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
       };
 
       let deadHandler = async (rawMsg) => {
-        let m = monitor.prefix('queue');
         m.count('dead-letters', 1);
         // TODO: figure out how to access the approximate retry attempt number
         // and submit that as a message to see how many times a message was
