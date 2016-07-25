@@ -88,6 +88,7 @@ class QueueManager {
     awsRes = await this.sqs.createQueue({
       QueueName: this.queueName,
       Attributes: {
+        VisibilityTimeout: '1000',
         RedrivePolicy: JSON.stringify({
           maxReceiveCount: this.maxReceiveCount,
           deadLetterTargetArn: this.deadQueueArn,
