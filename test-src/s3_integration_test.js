@@ -69,6 +69,7 @@ describe('Integration Tests', () => {
   let cfg;
   let sandbox;
   let queue;
+  let queueFactory;
   let cacheManager;
   let backend;
   let server;
@@ -76,14 +77,14 @@ describe('Integration Tests', () => {
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
 
-    queue = await main('queue', {
-      process: 'queue',
+    queueFactory = await main('queueFactory', {
+      process: 'queueFactory',
       profile: 'test',
     });
 
-    //await queue.purge();
+    queue = await queueFactory();
 
-    let cacheManagers = await main('cachemanagers', {
+    let cacheManagers = await main('cacheManagers', {
       process: 'cacheManager',
       profile: 'test',
     });
@@ -95,6 +96,8 @@ describe('Integration Tests', () => {
     assume(x.length).equals(1);
     cacheManager = x[0];
     assume(cacheManager).is.ok();
+
+    cacheManager.registerQueue(queue);
 
     server = await main('server', {
       process: 'server',

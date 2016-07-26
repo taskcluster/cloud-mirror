@@ -7,6 +7,7 @@ let uuid = require('uuid');
 let debug = require('debug')('sqs-integration-tests');
 
 let subject = require('../lib/queue-manager').QueueManager;
+let initQueue = require('../lib/queue-manager').initQueue;
 
 /**
  * NOTE:
@@ -18,14 +19,11 @@ describe('Integration Tests', () => {
   let sandbox;
   let cfg;
   let sqs;
-  let initQ;
-  let qurlf;
   let q;
 
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
     sqs = await main('sqs', {process: 'sqs', profile: 'test'});
-    qurlf = await main('queueUrlFactory', {process: 'sqs', profile: 'test'});
   });
 
   beforeEach(async () => {
@@ -34,7 +32,7 @@ describe('Integration Tests', () => {
 
   afterEach(async () => {
     if (q) {
-      q.stopListeningToQueue();
+      q.stop();
     }
     sandbox.restore();
   });
@@ -42,7 +40,7 @@ describe('Integration Tests', () => {
   it('should be able to send and receive message', async function(done) {
     let expected = {uuid: uuid.v4()};
 
-    let qurl = await qurlf('test-1');
+    let qurl = await initQueue(sqs, 'test-1', maxReceiveCount=1);
 
     let q = new subject({
       queueUrl: qurl.queueUrl,
@@ -63,7 +61,6 @@ describe('Integration Tests', () => {
     });
 
     try {
-      await q.init();
       await q.purge();
       q.start();
       await q.send(expected);
@@ -76,7 +73,7 @@ describe('Integration Tests', () => {
   it('should dead letter messages when the handler fails', async function(done) {
     let expected = {uuid: uuid.v4()};
 
-    let qurl = await qurlf('test-2');
+    let qurl = await initQueue(sqs, 'test-2', maxReceiveCount=1);
 
     let q = new subject({
       queueUrl: qurl.queueUrl,
@@ -90,13 +87,13 @@ describe('Integration Tests', () => {
         throw new Error();
       },
       deadHandler: async (obj) => {
+        console.log('hi');
         q.stop();
         done();
       },
     });
 
     try {
-      await q.init();
       await q.purge();
       await q.purgeDead();
       q.start();
@@ -110,7 +107,7 @@ describe('Integration Tests', () => {
   it('should refuse to send messages with encoding problems', async function(done) {
     let expected = '{\'not json\'}';
 
-    let qurl = await qurlf('test-3');
+    let qurl = await initQueue(sqs, 'test-3', maxReceiveCount=1);
 
     let q = new subject({
       queueUrl: qurl.queueUrl,
@@ -127,7 +124,6 @@ describe('Integration Tests', () => {
     });
 
     try {
-      await q.init();
       await q.purge();
       await q.purgeDead();
       await q.send(expected);
@@ -140,7 +136,7 @@ describe('Integration Tests', () => {
   it('should refuse to process messages with encoding problems', async function(done) {
     let expected = '{\'not json\'}';
 
-    let qurl = await qurlf('test-4');
+    let qurl = await initQueue(sqs, 'test-4', maxReceiveCount=1);
 
     let q = new subject({
       queueUrl: qurl.queueUrl,
@@ -164,7 +160,6 @@ describe('Integration Tests', () => {
       },
     });
     try {
-      await q.init();
       await q.purge();
       await q.purgeDead();
       q.start();

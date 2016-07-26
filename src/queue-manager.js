@@ -124,22 +124,26 @@ class QueueManager {
 
     this.qid = slugid.nice();
 
+    let that = this;
+
     // Create consumer for normal queue
     this.consumer = SQSConsumer.create({
-      queueUrl: this.queueUrl,
-      batchSize: this.batchSize,
+      queueUrl: that.queueUrl,
+      batchSize: that.batchSize,
       handleMessage: async (rawMsg, done) => {
-        debug(`Recevied message on ${this.queueUrl} ${this.qid}`);
+        debug(`Recevied message on ${that.queueUrl} ${that.qid}`);
         let msg;
         try {
           msg = JSON.parse(rawMsg.Body);
         } catch (err) {
-          debug(`Failed to JSON.parse message on ${this.queueUrl} ${this.qid}: ${rawMsg.Body}`); 
+          debug(`Failed to JSON.parse message on ${that.queueUrl} ${that.qid}: ${rawMsg.Body}`); 
           return done(err);
         }
 
         try {
-          await this.handler(msg);
+          debug('about to run handler');
+          await that.handler(msg);
+          debug('ran handler');
           done();
         } catch (err) {
           done(err);
@@ -151,17 +155,17 @@ class QueueManager {
     // Create consumer for dead letter queue
     if (this.deadHandler) {
       this.deadConsumer = SQSConsumer.create({
-        queueUrl: this.deadQueueUrl,
-        batchSize: this.deadBatchSize,
+        queueUrl: that.deadQueueUrl,
+        batchSize: that.deadBatchSize,
         handleMessage: async (rawMsg, done) => {
           try {
-            await this.deadHandler(rawMsg);
+            await that.deadHandler(rawMsg);
             done();
           } catch (err) {
             done(err);
           }
         },
-        sqs: this.sqs,
+        sqs: that.sqs,
       });
     }
    
