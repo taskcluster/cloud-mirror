@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+if (process.versions.node.split('.')[0] < 5) {
+  throw new Error('Only Node 5+ is supported');
+}
 require('source-map-support').install();
 
 let debugModule = require('debug');
