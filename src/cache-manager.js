@@ -28,6 +28,7 @@ class CacheManager {
       'ensureSSL', // true if we should force only HTTP in redirect links
       'storageProvider', // StorageProvider instance to manage
       'monitor', // taskcluster-lib-monitor instance
+      'queueSender', // sqsSimple QueueSender
     ]) {
       assert(typeof config[x] !== 'undefined', `CacheManager requires ${x} configuration value`);
       this[x] = config[x];
@@ -36,21 +37,13 @@ class CacheManager {
     // Maximum number of redirects to follow
     this.redirectLimit = config.redirectLimit || 30;
 
-    this.queues = [];
-    let queues = config.queues || [];
-    queues.forEach(queue => {
-      this.registerQueue(queue);
-    });
+    this.queueSender = config.queueSender;
 
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
     
     this.monitor = config.monitor.prefix(this.id);
-  }
-
-  // Stub for now
-  async init () {
   }
 
   async put (rawUrl) {
@@ -268,23 +261,15 @@ class CacheManager {
     return result;
   }
 
-  registerQueue (queueManager) {
-    this.queues.push(queueManager);
-  }
-
   async requestPut (rawUrl) {
-    if (this.queues.length < 1) {
-      throw new Error('Must have at least one Queue registered to requestPut');
-    }
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
-    await Promise.all(this.queues.map(queue => {
-      queue.send({
-        id: this.id,
-        url: rawUrl,
-      });
-    }));
+    await this.queueSender.insert({
+      id: this.id,
+      url: rawUrl,
+      action: 'put',
+    });
     this.debug(`sent put request for ${rawUrl}`);
   }
 }

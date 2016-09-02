@@ -8,7 +8,7 @@ let request = require('request-promise').defaults({
 });
 let http = require('http');
 let assume = require('assume');
-let _aws = require('aws-sdk-promise');
+let _aws = require('aws-sdk');
 let _ = require('lodash');
 let sinon = require('sinon');
 let uuid = require('uuid');
@@ -69,7 +69,7 @@ describe('Integration Tests', () => {
   let cfg;
   let sandbox;
   let queue;
-  let queueFactory;
+  let queueListenerFactory;
   let cacheManager;
   let backend;
   let server;
@@ -77,12 +77,12 @@ describe('Integration Tests', () => {
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
 
-    queueFactory = await main('queueFactory', {
-      process: 'queueFactory',
+    queueListenerFactory = await main('queueListenerFactory', {
+      process: 'queueListenerFactory',
       profile: 'test',
     });
 
-    queue = await queueFactory();
+    queue = await queueListenerFactory();
 
     let cacheManagers = await main('cacheManagers', {
       process: 'cacheManager',
@@ -96,8 +96,6 @@ describe('Integration Tests', () => {
     assume(x.length).equals(1);
     cacheManager = x[0];
     assume(cacheManager).is.ok();
-
-    cacheManager.registerQueue(queue);
 
     server = await main('server', {
       process: 'server',

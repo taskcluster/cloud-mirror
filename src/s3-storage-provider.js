@@ -9,9 +9,9 @@ let _ = require('lodash');
 /**
  * We use this to wrap the upload object returned by s3.upload so that we get a
  * promise interface.  Since this api method does not return the standard
- * AWS.Result class, it's not wrapped in Promises by the aws-sdk-promise
+ * AWS.Result class, it's not wrapped in Promises by the aws-sdk promise
  * wrapper.  Maybe we should consider adding this wrapper to the
- * aws-sdk-promise class...
+ * aws-sdk class...
  */
 let wrapSend = (upload) => {
   return new Promise((res, rej) => {

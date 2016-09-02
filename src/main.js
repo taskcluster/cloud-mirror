@@ -8,7 +8,7 @@ let debugModule = require('debug');
 let debug = debugModule('cloud-proxy:main');
 let base = {
   app: require('taskcluster-lib-app'),
-  validator: require('schema-validator-publisher'),
+  validator: require('taskcluster-lib-validate'),
   loader: require('taskcluster-lib-loader'),
 };
 let config = require('typed-env-config');
@@ -17,11 +17,10 @@ let _ = require('lodash');
 let assert = require('assert');
 let taskcluster = require('taskcluster-client');
 let uuid = require('uuid');
-let aws = require('aws-sdk-promise');
+let aws = require('aws-sdk');
 let CacheManager = require('./cache-manager').CacheManager;
-let QueueManager = require('./queue-manager').QueueManager;
-let initQueue = require('./queue-manager').initQueue;
 let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
+let sqsSimple = require('sqs-simple');
 
 let bluebird = require('bluebird');
 let redis = require('redis');
@@ -74,8 +73,8 @@ let load = base.loader({
   },
 
   sqs: {
-    requires: ['cfg'],
-    setup: ({cfg}) => {
+    requires: ['cfg', 'monitor'],
+    setup: ({cfg, monitor}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
       let sqsCfg = cfg.sqs;
       let sqsDebugger = debugModule('cloud-mirror:aws-sqs');
@@ -86,8 +85,11 @@ let load = base.loader({
           }
         },
       };
-      sqsCfg.logger = awsDebugLoggerBridge;
-      return new aws.SQS(sqsCfg);
+      //sqsCfg.logger = awsDebugLoggerBridge;
+      let sqs = new aws.SQS(sqsCfg);
+      let m = monitor.prefix('sqs');
+      //m.patchAWS(sqs);
+      return sqs;
     },
   },
 
@@ -115,13 +117,13 @@ let load = base.loader({
   },
 
   api: {
-    requires: ['cfg', 'validator', 'redis', 'registeredCacheManagers', 'monitor'],
-    setup: ({cfg, validator, redis, registeredCacheManagers, monitor}) => v1.setup(
+    requires: ['cfg', 'validator', 'redis', 'cacheManagers', 'monitor'],
+    setup: ({cfg, validator, redis, cacheManagers, monitor}) => v1.setup(
       {
         context: {
           validator: validator,
           redis: redis,
-          cacheManagers: registeredCacheManagers,
+          cacheManagers: cacheManagers,
           maxWaitForCachedCopy: cfg.app.maxWaitForCachedCopy,
           allowedPatterns: compilePatterns(cfg.app.allowedPatterns),
           redirectLimit: cfg.app.redirectLimit,
@@ -149,75 +151,123 @@ let load = base.loader({
     },
   },
 
-  // This is so we can do tests with different queues
-  queueUrlFactory: {
+  initQueue: {
     requires: ['cfg', 'sqs'],
     setup: async ({cfg, sqs}) => {
-      return async function (name) {
-        return initQueue(sqs, name);
-      };
+      let sqsConfig = cfg.sqsSimple;
+      sqsConfig.sqs = sqs;
+      debug(sqsConfig);
+      return sqsSimple.initQueue(sqsConfig);
     },
   },
 
   queueUrl: {
-    requires: ['cfg', 'queueUrlFactory', 'profile'],
-    setup: async ({cfg, queueUrlFactory, profile}) => queueUrlFactory(`cloud-mirror-${profile}`),
+    requires: ['cfg', 'sqs'],
+    setup: async ({cfg, sqs}) => {
+      return sqsSimple.getQueueUrl({
+        sqs,
+        queueName: cfg.sqsSimple.queueName,
+      });
+    },
   },
 
-  queueFactory: {
+  deadQueueUrl: {
+    requires: ['cfg', 'sqs', 'profile'],
+    setup: async ({cfg, sqs, profile}) => {
+      return sqsSimple.getQueueUrl({
+        sqs,
+        queueName: cfg.sqsSimple.queueName + cfg.sqsSimple.deadLetterSuffix,
+      });
+    },
+  },
+
+  queueSender: {
+    requires: ['cfg', 'sqs', 'queueUrl'],
+    setup: async ({cfg, sqs, queueUrl}) => {
+      return new sqsSimple.QueueSender({sqs, queueUrl});
+    },
+  },
+
+  queueListenerFactory: {
     requires: ['cfg', 'sqs', 'queueUrl', 'cacheManagers', 'profile', 'monitor'],
     setup: async ({cfg, sqs, queueUrl, cacheManagers, profile, monitor}) => {
-      return async () => {
-        let m = monitor.prefix('queue');
+      return async function() {
+        let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
 
-        let handler = async (obj) => {
+        listenerOpts.queueUrl = queueUrl;
+        listenerOpts.sqs = sqs;
+
+        listenerOpts.handler = async (obj, changeTimeout) => {
+          debug('received message!');
           assert(obj.id, 'must provide id in queue request');
           assert(typeof obj.id === 'string', 'id must be string');
           assert(obj.url, 'must provide url in queue request');
           assert(typeof obj.url === 'string', 'url must be string');
+          debug('this message checks out');
 
           let selectedCacheManagers = cacheManagers.filter(x => x.id === obj.id);
+
           await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
         };
+        
+        let listener = new sqsSimple.QueueListener(listenerOpts);
 
-        let deadHandler = async (rawMsg) => {
-          m.count('dead-letters', 1);
-          // TODO: figure out how to access the approximate retry attempt number
-          // and submit that as a message to see how many times a message was
-          // attempted before being dead lettered
-          m.reportError(`Put request failed to complete: ${JSON.stringify(rawMsg)}`);
-        };
-
-        let queue = new QueueManager({
-          sqs: sqs,
-          batchSize: cfg.app.sqsBatchSize,
-          handler: handler,
-          queueUrl: queueUrl.queueUrl,
-          deadHandler: deadHandler,
-          deadQueueUrl: queueUrl.deadQueueUrl,
+        listener.on('error', (err, errType) => {
+          let level = errType === 'payload' ? 'debug' : 'warning';
+          monitor.reportError(err, level, {type: errType});
+          debug('%s %s', err.stack || err, errType);
         });
 
-        return queue;
+        return listener;
       };
     },
   },
 
+  deadQueueListener: {
+    requires: ['cfg', 'sqs', 'deadQueueUrl', 'monitor'],
+    setup: async ({cfg, sqs, deadQueueUrl, monitor}) => {
+      let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
+
+      listenerOpts.queueUrl = deadQueueUrl;
+      listenerOpts.sqs = sqs;
+
+      listenerOpts.handler = async (obj, changeTimeout) => {
+        monitor.count('dead-letters', 1);
+        let err = new Error('dead-letter');
+        err.originalMessage = obj;
+        monitor.reportError(err, 'info');
+      };
+
+      let listener = new sqsSimple.QueueListener(listenerOpts);
+
+      listener.on('error', (err, errType) => {
+        let level = errType === 'payload' ? 'debug' : 'warning';
+        monitor.reportError(err, level, {type: errType});
+        debug('%s %s', err.stack || err, errType);
+      });
+
+      return listener;
+    },
+  },
+
   backend: {
-    requires: ['cfg', 'queueFactory'],
-    setup: async ({cfg, queueFactory}) => {
+    requires: ['cfg', 'queueListenerFactory', 'deadQueueListener'],
+    setup: async ({cfg, queueListenerFactory, deadQueueListener}) => {
       let queues = [];
       for (let x = 0; x < cfg.backend.count; x++) { 
-        let queue = await queueFactory();
+        let queue = await queueListenerFactory();
         queues.push(queue);
         queue.start();
       }
+
+      deadQueueListener.start();
       return queues;
     },
   },
 
   cacheManagers: {
-    requires: ['cfg', 'redis', 'profile', 'monitor'],
-    setup: async ({cfg, redis, profile, monitor}) => {
+    requires: ['cfg', 'redis', 'profile', 'queueSender', 'monitor'],
+    setup: async ({cfg, redis, profile, queueSender, monitor}) => {
 
       let cacheManagers = [];
       let s3regions = cfg.backend.s3.regions.split(',');
@@ -242,6 +292,8 @@ let load = base.loader({
 
         // Create the actual S3 object.
         let s3 = new aws.S3(awsCfg);
+        let m = monitor.prefix('s3');
+        //m.patchAWS(s3)
 
         let storageProvider = new S3StorageProvider({
           service: 's3',
@@ -262,29 +314,15 @@ let load = base.loader({
           cacheTTL: cfg.backend.cacheTTL,
           redis: redis,
           ensureSSL: cfg.app.ensureSSL,
+          queueSender: queueSender,
           storageProvider: storageProvider,
           redirectLimit: cfg.app.redirectLimit,
           monitor: monitor.prefix('cache-manager'),
         });
 
-        await cacheManager.init();
-
         cacheManagers.push(cacheManager);
       }
 
-      return cacheManagers;
-    },
-  },
-
-  // This needs to be a split out module because we'd otherwise
-  // have a depenency loop of qf -> cm -> qf...
-  registeredCacheManagers: {
-    requires: ['cacheManagers', 'queueFactory'],
-    setup: async ({cacheManagers, queueFactory}) => {
-      let queue = await queueFactory();
-      for (let cm of cacheManagers) {
-        cm.registerQueue(queue);
-      }
       return cacheManagers;
     },
   },

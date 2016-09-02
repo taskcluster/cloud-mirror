@@ -8,7 +8,6 @@ defaults:
 
     ensureSSL: false
     redirectLimit: 20
-    sqsBatchSize: 2
     maxWaitForCachedCopy: 28000 #ms
     allowedPatterns:
       - '^https://www\.mozilla\.org/'
@@ -60,6 +59,12 @@ defaults:
     region: us-west-2
     apiVersion: 2012-11-05
 
+  sqsSimple:
+    queueName: !env CLOUD_MIRROR_QUEUE_NAME
+    maxReceiveCount: 5
+    visibilityTimeout: 600
+    deadLetterSuffix: "_dead"
+
   # NOTE: this aws section is the AWS for the API Server
   # and credentials for the backend only
   aws:
@@ -72,6 +77,8 @@ defaults:
 
 # Configuration in production
 production:
+  sqsSimple:
+    queueName: cloud-mirror-production
   taskcluster:
     authBaseUrl: https://auth.taskcluster.net/v1
   server:
@@ -81,6 +88,8 @@ production:
     trustProxy: true
 
 development:
+  sqsSimple:
+    queueName: cloud-mirror-development
   app:
     ensureSSL: false
     maxWaitForCachedCopy: 10000 #ms
@@ -93,6 +102,8 @@ development:
     env: development
     publicUrl: http://localhost:5555
 test:
+  sqsSimple:
+    queueName: cloud-mirror-test
   backend:
     count: 10
   app:
