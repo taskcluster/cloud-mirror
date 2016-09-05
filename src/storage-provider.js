@@ -17,7 +17,7 @@ class StorageProvider {
    * Store the configuration for this storage provider in the variable
    * 'this.config' for use in following methods.
    */
-  constructor (config) {
+  constructor(config) {
     assert(config, 'must pass a configuration object to StorageProvider constructor');
     assert(config.service, 'all StorageProviders must have a service name');
     assert(config.region, 'all StorageProviders must have a region name');
@@ -36,7 +36,7 @@ class StorageProvider {
    * Perform any async init code require for this storage provider.  Default action
    * is for there to be no init code.
    */
-  async init () { }
+  async init() { }
 
   /**
    * Store a file with the StorageProvider.  This must be overridden with a method
@@ -49,14 +49,14 @@ class StorageProvider {
    *
    * and inserts the object into the storage provider
    */
-  async put (rawUrl, inputStream, headers, storageMetadata) {
+  async put(rawUrl, inputStream, headers, storageMetadata) {
     throw new Error('This StorageProvider implementation must implement .put()');
   }
 
   /**
    * Remove an internal address from the storage provider
    */
-  async purge (rawUrl) {
+  async purge(rawUrl) {
     throw new Error('This StorageProvider implementation must implement .purge()');
   }
 
@@ -65,7 +65,7 @@ class StorageProvider {
    * in this storage provider and return a Date object which represents when
    * this object will be cleaned up from the cache
    */
-  async expirationDate (response) {
+  async expirationDate(response) {
     throw new Error('This StorageProvider implementation must implement .expirationDate()');
   }
 
@@ -73,7 +73,7 @@ class StorageProvider {
    * A world address is what we will eventually redirect to.  This method
    * should map an internal address to a world address
    */
-  worldAddress (rawUrl) {
+  worldAddress(rawUrl) {
     throw new Error('This StorageProvider implementation must implement .worldAddress()');
   }
 }

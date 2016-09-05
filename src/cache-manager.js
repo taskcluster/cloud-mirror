@@ -20,7 +20,7 @@ let assert = require('assert');
 const CACHE_STATES = ['present', 'pending', 'error'];
 
 class CacheManager {
-  constructor (config) {
+  constructor(config) {
     for (let x of [
       'allowedPatterns', // Regular expressions to validate input urls
       'cacheTTL', // Number of seconds to keep URL in the cache
@@ -46,7 +46,7 @@ class CacheManager {
     this.monitor = config.monitor.prefix(this.id);
   }
 
-  async put (rawUrl) {
+  async put(rawUrl) {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
 
@@ -113,7 +113,7 @@ class CacheManager {
     }
   }
 
-  async getUrlForRedirect (rawUrl) {
+  async getUrlForRedirect(rawUrl) {
     let cacheEntry = await this.readCacheEntry(rawUrl);
 
     let worldAddress = this.storageProvider.worldAddress(rawUrl);
@@ -162,7 +162,7 @@ class CacheManager {
     return outcome;
   }
 
-  async purge (rawUrl) {
+  async purge(rawUrl) {
     assert(rawUrl);
     this.debug(`removing ${rawUrl} from storageProvider`);
     await this.storageProvider.purge(rawUrl);
@@ -172,7 +172,7 @@ class CacheManager {
     this.debug(`removed cache entry for ${rawUrl}`);
   }
 
-  async createUrlReadStream (rawUrl) {
+  async createUrlReadStream(rawUrl) {
     assert(rawUrl);
     let urlInfo = await validateUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
 
@@ -206,11 +206,11 @@ class CacheManager {
     };
   }
 
-  cacheKey (rawUrl) {
+  cacheKey(rawUrl) {
     return this.id + '_' + encodeURIComponent(rawUrl);
   }
 
-  async insertCacheEntry (rawUrl, status, ttl, stack) {
+  async insertCacheEntry(rawUrl, status, ttl, stack) {
     assert(rawUrl);
     assert(status);
     assert(ttl);
@@ -240,7 +240,7 @@ class CacheManager {
     }
   }
 
-  async readCacheEntry (rawUrl) {
+  async readCacheEntry(rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
@@ -261,7 +261,7 @@ class CacheManager {
     return result;
   }
 
-  async requestPut (rawUrl) {
+  async requestPut(rawUrl) {
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);

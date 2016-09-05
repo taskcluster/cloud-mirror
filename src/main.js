@@ -39,7 +39,7 @@ let testBucket;
  * that we've established as valid for allowed patterns and return a list of
  * regular expression objects
  */
-function compilePatterns (patterns) {
+function compilePatterns(patterns) {
   let regexps = [];
   for (let pattern of patterns) {
     if (!pattern.startsWith('^')) {
@@ -335,7 +335,7 @@ let load = base.loader({
     setup: async ({monitor, sqs, profile, queueUrl}) => {
       let m = monitor.prefix(`cloud-mirror.${profile}.sqs-messages`);
 
-      async function x () {
+      async function x() {
         console.log('checking on sqs queue');
         let result = await sqs.getQueueAttributes({
           QueueUrl: queueUrl.queueUrl,

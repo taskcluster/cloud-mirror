@@ -18,7 +18,7 @@ let url = require('url');
  * This will return `false` if the url is invalid, an object with information if
  * it is valid and will throw if an error occured while doing the redirects
  */
-async function validateUrl (
+async function validateUrl(
     firstUrl,
     allowedPatterns = [/.*/],
     redirectLimit = 30,
