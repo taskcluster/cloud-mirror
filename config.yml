@@ -29,7 +29,7 @@ defaults:
     trustProxy: false
 
   backend:
-    count: 10
+    count: 100
     s3:
       regions: 'us-west-1,us-east-1,eu-central-1'
       acl: 'public-read'
