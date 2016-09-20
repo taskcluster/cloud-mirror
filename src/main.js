@@ -340,18 +340,20 @@ let load = base.loader({
       while (true) {
         console.log('checking on sqs queue');
         let result = await sqs.getQueueAttributes({
-          QueueUrl: queueUrl.queueUrl,
+          QueueUrl: queueUrl,
           AttributeNames: [
             'ApproximateNumberOfMessages',
             'ApproximateNumberOfMessagesNotVisible',
           ],
         }).promise();
-        let messagesWaiting = parseInt(result.data.Attributes.ApproximateNumberOfMessages, 10);
-        let messagesInProcessing = parseInt(result.data.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
+
+        let messagesWaiting = parseInt(result.Attributes.ApproximateNumberOfMessages, 10);
+        let messagesInProcessing = parseInt(result.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
 
         m.measure('visible', messagesWaiting);
         m.measure('in-flight', messagesInProcessing);
         console.log(`There are ${messagesWaiting} waiting and ${messagesInProcessing} in flight`);
+        await new Promise(accept => setTimeout(accept, 2000));
       }
     },
   },
