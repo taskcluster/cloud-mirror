@@ -197,17 +197,15 @@ let load = base.loader({
         listenerOpts.queueUrl = queueUrl;
         listenerOpts.sqs = sqs;
 
-        listenerOpts.handler = async (obj, changeTimeout) => {
+        listenerOpts.handler = async (msg, changeTimeout) => {
           debug('received message!');
-          assert(obj.id, 'must provide id in queue request');
-          assert(typeof obj.id === 'string', 'id must be string');
-          assert(obj.url, 'must provide url in queue request');
-          assert(typeof obj.url === 'string', 'url must be string');
+          assert(typeof msg.id === 'string', 'id must be string');
+          assert(typeof msg.url === 'string', 'url must be string');
           debug('this message checks out');
 
-          let selectedCacheManagers = cacheManagers.filter(x => x.id === obj.id);
+          let selectedCacheManagers = cacheManagers.filter(x => x.id === msg.id);
 
-          await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+          await Promise.all(selectedCacheManagers.map(x => x.put(msg.url)));
         };
         
         let listener = new sqsSimple.QueueListener(listenerOpts);
@@ -216,6 +214,10 @@ let load = base.loader({
           let level = errType === 'payload' ? 'debug' : 'warning';
           monitor.reportError(err, level, {type: errType});
           debug('%s %s', err.stack || err, errType);
+          if (errType === 'api') {
+            console.log('Encountered an API error, exiting');
+            process.exit(1);
+          }
         });
 
         return listener;
@@ -231,10 +233,10 @@ let load = base.loader({
       listenerOpts.queueUrl = deadQueueUrl;
       listenerOpts.sqs = sqs;
 
-      listenerOpts.handler = async (obj, changeTimeout) => {
+      listenerOpts.handler = async (msg, changeTimeout) => {
         monitor.count('dead-letters', 1);
         let err = new Error('dead-letter');
-        err.originalMessage = obj;
+        err.originalMessage = msg;
         monitor.reportError(err, 'info');
       };
 
@@ -335,7 +337,7 @@ let load = base.loader({
     setup: async ({monitor, sqs, profile, queueUrl}) => {
       let m = monitor.prefix(`cloud-mirror.${profile}.sqs-messages`);
 
-      async function x() {
+      while (true) {
         console.log('checking on sqs queue');
         let result = await sqs.getQueueAttributes({
           QueueUrl: queueUrl.queueUrl,
@@ -347,13 +349,10 @@ let load = base.loader({
         let messagesWaiting = parseInt(result.data.Attributes.ApproximateNumberOfMessages, 10);
         let messagesInProcessing = parseInt(result.data.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
 
-        m.measure('waiting', messagesWaiting);
+        m.measure('visible', messagesWaiting);
         m.measure('in-flight', messagesInProcessing);
         console.log(`There are ${messagesWaiting} waiting and ${messagesInProcessing} in flight`);
-        setTimeout(x, 10000);
       }
-
-      setTimeout(x, 0);
     },
   },
 
