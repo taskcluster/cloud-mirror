@@ -239,7 +239,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function (req, res) {
+}, function(req, res) {
   res.status(200).json({
     alive: true,
     uptime: process.uptime(),
@@ -256,7 +256,7 @@ api.declare({
     '',
     '**Warning** this api end-point is **not stable**.',
   ].join('\n'),
-}, function (req, res) {
+}, function(req, res) {
   let host = req.get('host');
   let proto = req.connection.encrypted ? 'https' : 'http';
   res.status(200).json(api.reference({

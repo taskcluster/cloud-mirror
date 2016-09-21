@@ -8,7 +8,7 @@ let request = require('request-promise').defaults({
 });
 let http = require('http');
 let assume = require('assume');
-let _aws = require('aws-sdk-promise');
+let _aws = require('aws-sdk');
 let _ = require('lodash');
 let sinon = require('sinon');
 let uuid = require('uuid');
@@ -22,7 +22,7 @@ let cm = require('../lib/cache-manager');
 let sp = require('../lib/storage-provider');
 let s3sp = require('../lib/s3-storage-provider');
 
-async function emptyBucket (awsCfg, bucket) {
+async function emptyBucket(awsCfg, bucket) {
   debug('emptying test bucket');
 
   let aws = new _aws.S3(_.omit(awsCfg, 'region'));
@@ -69,6 +69,7 @@ describe('Integration Tests', () => {
   let cfg;
   let sandbox;
   let queue;
+  let queueListenerFactory;
   let cacheManager;
   let backend;
   let server;
@@ -76,14 +77,14 @@ describe('Integration Tests', () => {
   before(async () => {
     cfg = await main('cfg', {process: 'cfg', profile: 'test'});
 
-    queue = await main('queue', {
-      process: 'queue',
+    queueListenerFactory = await main('queueListenerFactory', {
+      process: 'queueListenerFactory',
       profile: 'test',
     });
 
-    //await queue.purge();
+    queue = await queueListenerFactory();
 
-    let cacheManagers = await main('cachemanagers', {
+    let cacheManagers = await main('cacheManagers', {
       process: 'cacheManager',
       profile: 'test',
     });
@@ -121,7 +122,7 @@ describe('Integration Tests', () => {
     await emptyBucket(cfg.aws, cacheManager.storageProvider.bucket);
   });
 
-  function assertRedirected (expected, actual) {
+  function assertRedirected(expected, actual) {
     let realBucket = cacheManager.storageProvider.bucket;
     let redirectedUrl = `https://${realBucket}.s3-us-west-1.amazonaws.com/`;
     redirectedUrl += encodeURIComponent(expected);
@@ -129,11 +130,11 @@ describe('Integration Tests', () => {
   }
 
   // Corresponding negative for the positive check
-  function assertNotRedirected (expected, actual) {
+  function assertNotRedirected(expected, actual) {
     assume(expected).equals(actual);
   }
 
-  function testRedirect (name, testUrl, shouldRedirect = true) {
+  function testRedirect(name, testUrl, shouldRedirect = true) {
     it(name, async () => {
       let expectedRedirect = baseUrl + '/redirect/s3/us-west-1/';
       expectedRedirect += encodeURIComponent(testUrl);
@@ -176,7 +177,7 @@ describe('Integration Tests', () => {
   testRedirect('should cache a simple streamed resource', httpbin + '/stream/5');
   testRedirect('should cache a byte-stream resource', httpbin + '/stream-bytes/2000?seed=1234&chunk_size=10');
 
-  function testFailure (name, testUrl, expectedStatusCode) {
+  function testFailure(name, testUrl, expectedStatusCode) {
     it(name, async () => {
       let expectedRedirect = baseUrl + '/redirect/s3/us-west-1/';
       expectedRedirect += encodeURIComponent(testUrl);

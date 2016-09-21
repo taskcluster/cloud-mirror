@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+if (process.versions.node.split('.')[0] < 5) {
+  throw new Error('Only Node 5+ is supported');
+}
+require('source-map-support').install();
+
 let debugModule = require('debug');
 let debug = debugModule('cloud-proxy:main');
 let base = {
   app: require('taskcluster-lib-app'),
-  validator: require('schema-validator-publisher'),
+  validator: require('taskcluster-lib-validate'),
   loader: require('taskcluster-lib-loader'),
 };
 let config = require('typed-env-config');
@@ -12,11 +17,10 @@ let _ = require('lodash');
 let assert = require('assert');
 let taskcluster = require('taskcluster-client');
 let uuid = require('uuid');
-
-let aws = require('aws-sdk-promise');
+let aws = require('aws-sdk');
 let CacheManager = require('./cache-manager').CacheManager;
-let QueueManager = require('./queue-manager').QueueManager;
 let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
+let sqsSimple = require('sqs-simple');
 
 let bluebird = require('bluebird');
 let redis = require('redis');
@@ -35,7 +39,7 @@ let testBucket;
  * that we've established as valid for allowed patterns and return a list of
  * regular expression objects
  */
-function compilePatterns (patterns) {
+function compilePatterns(patterns) {
   let regexps = [];
   for (let pattern of patterns) {
     if (!pattern.startsWith('^')) {
@@ -69,8 +73,8 @@ let load = base.loader({
   },
 
   sqs: {
-    requires: ['cfg'],
-    setup: ({cfg}) => {
+    requires: ['cfg', 'monitor'],
+    setup: ({cfg, monitor}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
       let sqsCfg = cfg.sqs;
       let sqsDebugger = debugModule('cloud-mirror:aws-sqs');
@@ -81,8 +85,11 @@ let load = base.loader({
           }
         },
       };
-      sqsCfg.logger = awsDebugLoggerBridge;
-      return new aws.SQS(sqsCfg);
+      //sqsCfg.logger = awsDebugLoggerBridge;
+      let sqs = new aws.SQS(sqsCfg);
+      let m = monitor.prefix('sqs');
+      //m.patchAWS(sqs);
+      return sqs;
     },
   },
 
@@ -110,27 +117,26 @@ let load = base.loader({
   },
 
   api: {
-    requires: ['cfg', 'validator', 'redis', 'cachemanagers', 'queue', 'monitor'],
-    setup: (ctx) => v1.setup(
+    requires: ['cfg', 'validator', 'redis', 'cacheManagers', 'monitor'],
+    setup: ({cfg, validator, redis, cacheManagers, monitor}) => v1.setup(
       {
         context: {
-          validator: ctx.validator,
-          redis: ctx.redis,
-          cacheManagers: ctx.cachemanagers,
-          maxWaitForCachedCopy: ctx.cfg.app.maxWaitForCachedCopy,
-          allowedPatterns: compilePatterns(ctx.cfg.app.allowedPatterns),
-          redirectLimit: ctx.cfg.app.redirectLimit,
-          ensureSSL: ctx.cfg.app.ensureSSL,
-          monitor: ctx.monitor.prefix('api'),
+          validator: validator,
+          redis: redis,
+          cacheManagers: cacheManagers,
+          maxWaitForCachedCopy: cfg.app.maxWaitForCachedCopy,
+          allowedPatterns: compilePatterns(cfg.app.allowedPatterns),
+          redirectLimit: cfg.app.redirectLimit,
+          ensureSSL: cfg.app.ensureSSL,
+          monitor: monitor.prefix('api'),
         },
-        validator: ctx.validator,
-        authBaseUrl: ctx.cfg.taskcluster.authBaseUrl,
-        publish: ctx.cfg.app.publishMetaData,
-        baseUrl: ctx.cfg.server.publicUrl + '/v1',
+        validator: validator,
+        authBaseUrl: cfg.taskcluster.authBaseUrl,
+        publish: cfg.app.publishMetaData,
+        baseUrl: cfg.server.publicUrl + '/v1',
         referencePrefix: 'cloud-mirror/v1/api.json',
-        aws: ctx.cfg.aws,
-        //component: ctx.cfg.app.statsComponent,
-        monitor: ctx.monitor.prefix('api'),
+        aws: cfg.aws,
+        monitor: monitor.prefix('api'),
       },
     ),
   },
@@ -145,57 +151,125 @@ let load = base.loader({
     },
   },
 
-  queue: {
-    requires: ['cachemanagers', 'cfg', 'sqs', 'profile', 'monitor'],
-    setup: async ({cachemanagers, cfg, sqs, profile, sqsQueues, monitor}) => {
+  initQueue: {
+    requires: ['cfg', 'sqs'],
+    setup: async ({cfg, sqs}) => {
+      let sqsConfig = cfg.sqsSimple;
+      sqsConfig.sqs = sqs;
+      debug(sqsConfig);
+      return sqsSimple.initQueue(sqsConfig);
+    },
+  },
 
-      let handler = async (obj) => {
-        assert(obj.id, 'must provide id in queue request');
-        assert(typeof obj.id === 'string', 'id must be string');
-        assert(obj.url, 'must provide url in queue request');
-        assert(typeof obj.url === 'string', 'url must be string');
+  queueUrl: {
+    requires: ['cfg', 'sqs'],
+    setup: async ({cfg, sqs}) => {
+      return sqsSimple.getQueueUrl({
+        sqs,
+        queueName: cfg.sqsSimple.queueName,
+      });
+    },
+  },
 
-        let selectedCacheManagers = cachemanagers.filter(x => x.id === obj.id);
-        await Promise.all(selectedCacheManagers.map(x => x.put(obj.url)));
+  deadQueueUrl: {
+    requires: ['cfg', 'sqs', 'profile'],
+    setup: async ({cfg, sqs, profile}) => {
+      return sqsSimple.getQueueUrl({
+        sqs,
+        queueName: cfg.sqsSimple.queueName + cfg.sqsSimple.deadLetterSuffix,
+      });
+    },
+  },
+
+  queueSender: {
+    requires: ['cfg', 'sqs', 'queueUrl'],
+    setup: async ({cfg, sqs, queueUrl}) => {
+      return new sqsSimple.QueueSender({sqs, queueUrl});
+    },
+  },
+
+  queueListenerFactory: {
+    requires: ['cfg', 'sqs', 'queueUrl', 'cacheManagers', 'profile', 'monitor'],
+    setup: async ({cfg, sqs, queueUrl, cacheManagers, profile, monitor}) => {
+      return async function() {
+        let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
+
+        listenerOpts.queueUrl = queueUrl;
+        listenerOpts.sqs = sqs;
+
+        listenerOpts.handler = async (msg, changeTimeout) => {
+          debug('received message!');
+          assert(typeof msg.id === 'string', 'id must be string');
+          assert(typeof msg.url === 'string', 'url must be string');
+          debug('this message checks out');
+
+          let selectedCacheManagers = cacheManagers.filter(x => x.id === msg.id);
+
+          await Promise.all(selectedCacheManagers.map(x => x.put(msg.url)));
+        };
+        
+        let listener = new sqsSimple.QueueListener(listenerOpts);
+
+        listener.on('error', (err, errType) => {
+          let level = errType === 'payload' ? 'debug' : 'warning';
+          monitor.reportError(err, level, {type: errType});
+          debug('%s %s', err.stack || err, errType);
+          if (errType === 'api') {
+            console.log('Encountered an API error, exiting');
+            process.exit(1);
+          }
+        });
+
+        return listener;
+      };
+    },
+  },
+
+  deadQueueListener: {
+    requires: ['cfg', 'sqs', 'deadQueueUrl', 'monitor'],
+    setup: async ({cfg, sqs, deadQueueUrl, monitor}) => {
+      let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
+
+      listenerOpts.queueUrl = deadQueueUrl;
+      listenerOpts.sqs = sqs;
+
+      listenerOpts.handler = async (msg, changeTimeout) => {
+        monitor.count('dead-letters', 1);
+        let err = new Error('dead-letter');
+        err.originalMessage = msg;
+        monitor.reportError(err, 'info');
       };
 
-      let deadHandler = async (rawMsg) => {
-        let m = monitor.prefix('queue');
-        m.count('dead-letters', 1);
-        // TODO: figure out how to access the approximate retry attempt number
-        // and submit that as a message to see how many times a message was
-        // attempted before being dead lettered
-        m.reportError(`Put request failed to complete: ${JSON.stringify(rawMsg)}`);
-      };
+      let listener = new sqsSimple.QueueListener(listenerOpts);
 
-      let queue = new QueueManager({
-        queueName: `cloud-mirror-${profile}`,
-        sqs: sqs,
-        batchSize: cfg.app.sqsBatchSize,
-        handler: handler,
+      listener.on('error', (err, errType) => {
+        let level = errType === 'payload' ? 'debug' : 'warning';
+        monitor.reportError(err, level, {type: errType});
+        debug('%s %s', err.stack || err, errType);
       });
 
-      await queue.init();
-
-      cachemanagers.forEach(manager => {
-        manager.registerQueue(queue);
-      });
-
-      return queue;
+      return listener;
     },
   },
 
   backend: {
-    requires: ['queue'],
-    setup: async ({queue}) => {
-      queue.start();
-      return queue;
+    requires: ['cfg', 'queueListenerFactory', 'deadQueueListener'],
+    setup: async ({cfg, queueListenerFactory, deadQueueListener}) => {
+      let queues = [];
+      for (let x = 0; x < cfg.backend.count; x++) { 
+        let queue = await queueListenerFactory();
+        queues.push(queue);
+        queue.start();
+      }
+
+      deadQueueListener.start();
+      return queues;
     },
   },
 
-  cachemanagers: {
-    requires: ['cfg', 'redis', 'profile', 'sqs', 'monitor'],
-    setup: async ({cfg, redis, profile, sqs, sqsQueues, monitor}) => {
+  cacheManagers: {
+    requires: ['cfg', 'redis', 'profile', 'queueSender', 'monitor'],
+    setup: async ({cfg, redis, profile, queueSender, monitor}) => {
 
       let cacheManagers = [];
       let s3regions = cfg.backend.s3.regions.split(',');
@@ -220,6 +294,8 @@ let load = base.loader({
 
         // Create the actual S3 object.
         let s3 = new aws.S3(awsCfg);
+        let m = monitor.prefix('s3');
+        //m.patchAWS(s3)
 
         let storageProvider = new S3StorageProvider({
           service: 's3',
@@ -240,13 +316,11 @@ let load = base.loader({
           cacheTTL: cfg.backend.cacheTTL,
           redis: redis,
           ensureSSL: cfg.app.ensureSSL,
+          queueSender: queueSender,
           storageProvider: storageProvider,
           redirectLimit: cfg.app.redirectLimit,
-          sqs: sqs,
           monitor: monitor.prefix('cache-manager'),
         });
-
-        await cacheManager.init();
 
         cacheManagers.push(cacheManager);
       }
@@ -259,36 +333,35 @@ let load = base.loader({
   // is not intended to be long living code and so has a bunch of things
   // hardcoded in.  If you'd like, feel free to put this into config.yml
   queueMonitor: {
-    requires: ['monitor', 'sqs', 'profile', 'queue'],
-    setup: async ({monitor, sqs, profile, queue}) => {
+    requires: ['monitor', 'sqs', 'profile', 'queueUrl'],
+    setup: async ({monitor, sqs, profile, queueUrl}) => {
       let m = monitor.prefix(`cloud-mirror.${profile}.sqs-messages`);
 
-      async function x () {
+      while (true) {
         console.log('checking on sqs queue');
         let result = await sqs.getQueueAttributes({
-          QueueUrl: queue.queueUrl,
+          QueueUrl: queueUrl,
           AttributeNames: [
             'ApproximateNumberOfMessages',
             'ApproximateNumberOfMessagesNotVisible',
           ],
         }).promise();
-        let messagesWaiting = parseInt(result.data.Attributes.ApproximateNumberOfMessages, 10);
-        let messagesInProcessing = parseInt(result.data.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
 
-        m.measure('waiting', messagesWaiting);
+        let messagesWaiting = parseInt(result.Attributes.ApproximateNumberOfMessages, 10);
+        let messagesInProcessing = parseInt(result.Attributes.ApproximateNumberOfMessagesNotVisible, 10);
+
+        m.measure('visible', messagesWaiting);
         m.measure('in-flight', messagesInProcessing);
         console.log(`There are ${messagesWaiting} waiting and ${messagesInProcessing} in flight`);
-        setTimeout(x, 10000);
+        await new Promise(accept => setTimeout(accept, 2000));
       }
-
-      setTimeout(x, 0);
     },
   },
 
   all: {
     requires: ['backend', 'server'],
-    setup: async ({listeningcachemanagers, server}) => {
-      await Promise.race([listeningcachemanagers, server]);
+    setup: async ({backend, server}) => {
+      await Promise.race([backend, server]);
     },
   },
 

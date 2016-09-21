@@ -9,9 +9,9 @@ let _ = require('lodash');
 /**
  * We use this to wrap the upload object returned by s3.upload so that we get a
  * promise interface.  Since this api method does not return the standard
- * AWS.Result class, it's not wrapped in Promises by the aws-sdk-promise
+ * AWS.Result class, it's not wrapped in Promises by the aws-sdk promise
  * wrapper.  Maybe we should consider adding this wrapper to the
- * aws-sdk-promise class...
+ * aws-sdk class...
  */
 let wrapSend = (upload) => {
   return new Promise((res, rej) => {
@@ -58,7 +58,7 @@ const DisallowedHTTPHeaders = ['Cache-Control', 'Expires'];
  */
 class S3StorageProvider extends StorageProvider {
 
-  constructor (config) {
+  constructor(config) {
     super(config);
     assert(config.bucket, 'must specify an s3 bucket');
     assert(config.partSize, 'must specify an upload part size');
@@ -78,7 +78,7 @@ class S3StorageProvider extends StorageProvider {
   /**
    * Ensure that our bucket exists
    */
-  async init () {
+  async init() {
     this.debug(`creating ${this.bucket}`);
     await createS3Bucket(this.s3, this.bucket, this.region, this.acl, this.lifespan);
     this.debug(`creating ${this.bucket}`);
@@ -87,7 +87,7 @@ class S3StorageProvider extends StorageProvider {
   /**
    * StorageProvider.put() implementation for S3
    */
-  async put (rawUrl, inputStream, headers, storageMetadata) {
+  async put(rawUrl, inputStream, headers, storageMetadata) {
     assert(rawUrl, 'must provide raw input url');
     assert(inputStream, 'must provide an input stream');
     assert(headers, 'must provide HTTP headers');
@@ -128,7 +128,7 @@ class S3StorageProvider extends StorageProvider {
   /**
    * StorageProvider.purge() implementation for S3
    */
-  async purge (rawUrl) {
+  async purge(rawUrl) {
     this.debug(`purging ${rawUrl} from ${this.bucket}`);
     await this.s3.deleteObject({
       Bucket: this.bucket,
@@ -143,7 +143,7 @@ class S3StorageProvider extends StorageProvider {
    * This is stored in the format:
    * expiry-date="Fri, 15 Jan 2016 00:00:00 GMT", rule-id="eu-central-1-1-day"
    */
-  async expirationDate (response) {
+  async expirationDate(response) {
     let header = response.headers['x-amz-expiration'];
     if (!header) {
       throw new Error(JSON.stringify(response.headers, null, 2));
@@ -163,7 +163,7 @@ class S3StorageProvider extends StorageProvider {
   /**
    * Create an S3 URL for an object stored in this S3 storage provider
    */
-  worldAddress (rawUrl) {
+  worldAddress(rawUrl) {
     assert(rawUrl);
     let s3Domain;
     if (this.region === 'us-east-1') {
@@ -184,7 +184,7 @@ class S3StorageProvider extends StorageProvider {
 }
 
 // Validate an S3 bucket
-function validateS3BucketName (name, sslVhost = false) {
+function validateS3BucketName(name, sslVhost = false) {
   // http://docs.aws.amazon.com/AmazonS3/latest/dev/BucketRestrictions.html
 
   // Bucket names must be at least 3 and no more than 63 characters long.
@@ -225,7 +225,7 @@ function validateS3BucketName (name, sslVhost = false) {
  * Create an S3 Bucket in a specified region with the given name and ACL.  All
  * objects will expire after 'lifecycleDays' days have elapsed.
  */
-async function createS3Bucket (s3, name, region, acl, lifecycleDays = 1) {
+async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
   assert(s3);
   assert(name);
   assert(region);

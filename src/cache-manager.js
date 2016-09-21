@@ -12,7 +12,6 @@ let request = require('request').defaults({
 let fs = require('fs');
 let stream = require('stream');
 let meter = require('stream-meter');
-let SQSConsumer = require('sqs-consumer');
 let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
@@ -21,7 +20,7 @@ let assert = require('assert');
 const CACHE_STATES = ['present', 'pending', 'error'];
 
 class CacheManager {
-  constructor (config) {
+  constructor(config) {
     for (let x of [
       'allowedPatterns', // Regular expressions to validate input urls
       'cacheTTL', // Number of seconds to keep URL in the cache
@@ -29,6 +28,7 @@ class CacheManager {
       'ensureSSL', // true if we should force only HTTP in redirect links
       'storageProvider', // StorageProvider instance to manage
       'monitor', // taskcluster-lib-monitor instance
+      'queueSender', // sqsSimple QueueSender
     ]) {
       assert(typeof config[x] !== 'undefined', `CacheManager requires ${x} configuration value`);
       this[x] = config[x];
@@ -37,11 +37,7 @@ class CacheManager {
     // Maximum number of redirects to follow
     this.redirectLimit = config.redirectLimit || 30;
 
-    this.queues = [];
-    let queues = config.queues || [];
-    queues.forEach(queue => {
-      this.registerQueue(queue);
-    });
+    this.queueSender = config.queueSender;
 
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
@@ -50,11 +46,7 @@ class CacheManager {
     this.monitor = config.monitor.prefix(this.id);
   }
 
-  // Stub for now
-  async init () {
-  }
-
-  async put (rawUrl) {
+  async put(rawUrl) {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
 
@@ -121,7 +113,7 @@ class CacheManager {
     }
   }
 
-  async getUrlForRedirect (rawUrl) {
+  async getUrlForRedirect(rawUrl) {
     let cacheEntry = await this.readCacheEntry(rawUrl);
 
     let worldAddress = this.storageProvider.worldAddress(rawUrl);
@@ -170,7 +162,7 @@ class CacheManager {
     return outcome;
   }
 
-  async purge (rawUrl) {
+  async purge(rawUrl) {
     assert(rawUrl);
     this.debug(`removing ${rawUrl} from storageProvider`);
     await this.storageProvider.purge(rawUrl);
@@ -180,7 +172,7 @@ class CacheManager {
     this.debug(`removed cache entry for ${rawUrl}`);
   }
 
-  async createUrlReadStream (rawUrl) {
+  async createUrlReadStream(rawUrl) {
     assert(rawUrl);
     let urlInfo = await validateUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
 
@@ -214,11 +206,11 @@ class CacheManager {
     };
   }
 
-  cacheKey (rawUrl) {
+  cacheKey(rawUrl) {
     return this.id + '_' + encodeURIComponent(rawUrl);
   }
 
-  async insertCacheEntry (rawUrl, status, ttl, stack) {
+  async insertCacheEntry(rawUrl, status, ttl, stack) {
     assert(rawUrl);
     assert(status);
     assert(ttl);
@@ -248,7 +240,7 @@ class CacheManager {
     }
   }
 
-  async readCacheEntry (rawUrl) {
+  async readCacheEntry(rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
     this.debug(`reading cache entry for ${rawUrl}`);
@@ -269,23 +261,17 @@ class CacheManager {
     return result;
   }
 
-  registerQueue (queueManager) {
-    this.queues.push(queueManager);
-  }
-
-  async requestPut (rawUrl) {
-    if (this.queues.length < 1) {
-      throw new Error('Must have at least one Queue registered to requestPut');
-    }
+  async requestPut(rawUrl) {
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
-    await Promise.all(this.queues.map(queue => {
-      queue.send({
-        id: this.id,
-        url: rawUrl,
-      });
-    }));
+    // ID is the identifier for a storage pool.  This is a combination of the
+    // service and the subdivison of that service
+    await this.queueSender.insert({
+      id: this.id,
+      url: rawUrl,
+      action: 'put',
+    });
     this.debug(`sent put request for ${rawUrl}`);
   }
 }
