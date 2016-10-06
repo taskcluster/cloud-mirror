@@ -91,6 +91,10 @@ class CacheManager {
         addresses: JSON.stringify(inputUrlInfo.addresses),
       };
 
+      if (inputUrlInfo.meta.headers['content-length']) {
+        storageMetadata['upstream-content-length'] = inputUrlInfo.meta.headers['content-length'];
+      }
+
       let start = process.hrtime();
 
       await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
@@ -105,8 +109,19 @@ class CacheManager {
 
       this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
 
-      await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
-
+      let contentLength = parseInt(inputUrlInfo.meta.headers['content-length'], 10);
+      if (contentLength && contentLength !== m.bytes) {
+        let errmsg = `content length of input ${contentLength} is different to amount of bytes uploaded ${m.bytes}`;
+        this.debug(errmsg);
+        await this.purge(rawUrl);
+        let err = new Error(errmsg);
+        err.upstreamLength = contentLength;
+        err.bytesUploaded = m.bytes;
+        await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack);
+      } else {
+        this.debug('finished upload');
+        await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
+      }
     } catch (err) {
       this.debug(`error putting ${rawUrl}: ${err.stack || err}`);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
@@ -259,6 +274,16 @@ class CacheManager {
     }
     this.debug(`read cache entry for ${rawUrl}`);
     return result;
+  }
+
+  async deleteCacheEntry(rawUrl) {
+    let key = this.cacheKey(rawUrl);
+    try {
+      await this.redis.delAsync(key);
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-delete-failure', 1);
+    }
   }
 
   async requestPut(rawUrl) {
