@@ -268,6 +268,9 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
           ID: region + '-' + lifecycleDays + '-day',
           Prefix: '',
           Status: 'Enabled',
+          AbortIncompleteMultipartUpload: {
+            DaysAfterInitiation: 1,
+          },
           Expiration: {
             Days: lifecycleDays,
           },
