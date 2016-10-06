@@ -24,3 +24,7 @@ push-docker-image: #build-docker-image
 clean-all-docker:
 	docker rm $(shell docker ps -a -q) || true
 	docker rmi --force $(shell docker images -q)
+
+.PHONY: prod-logs
+prod-logs:
+	docker-cloud service logs -f cloud-mirror-copier
