@@ -16,6 +16,7 @@ let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
 let assert = require('assert');
+let Mutex = require('shared-mutex').Mutex;
 
 const CACHE_STATES = ['present', 'pending', 'error'];
 
@@ -49,6 +50,16 @@ class CacheManager {
   async put(rawUrl) {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
+
+    let mutex = new Mutex(this.redis, this.lockKey(rawUrl));
+    try {
+      mutex.lock();
+      this.monitor.count('cloud-mirror.concurrent-copy.no-issues', 1);
+    } catch (err) {
+      debug('WE ARE ATTEMPTING TWO CONCURRENT COPIES FOR SAME RESOURCE, IGNORING');
+      this.monitor.count('cloud-mirror.concurrent-copy.already-locked', 1);
+      throw err;
+    }
 
     // Tell others that we're working on this url
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
@@ -113,18 +124,25 @@ class CacheManager {
       if (contentLength && contentLength !== m.bytes) {
         let errmsg = `content length of input ${contentLength} is different to amount of bytes uploaded ${m.bytes}`;
         this.debug(errmsg);
-        await this.purge(rawUrl);
         let err = new Error(errmsg);
         err.upstreamLength = contentLength;
         err.bytesUploaded = m.bytes;
-        await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack);
-      } else {
-        this.debug('finished upload');
-        await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
-      }
+        // TODO: figure out why we're uploading more bytes than content length
+        // is and re-enable this as well as moving the below insertCacheEntry
+        // with 'present' back into the else of this if
+        //await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack);
+        //await this.purge(rawUrl);
+        this.debug(`original content-length: ${contentLength} differs from size of upload ${m.bytes}`);
+      } // else {
+      this.debug('finished upload');
+      await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
+      //}
     } catch (err) {
       this.debug(`error putting ${rawUrl}: ${err.stack || err}`);
+      await this.storageProvider.purge(rawUrl);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
+    } finally {
+      mutex.unlock();
     }
   }
 
@@ -138,6 +156,15 @@ class CacheManager {
     };
 
     if (!cacheEntry) {
+      let mutex = new Mutex(this.redis, this.lockKey(rawUrl));
+      try {
+        mutex.lock();
+        this.monitor.count('cloud-mirror.concurrent-copy.no-issues', 1);
+      } catch (err) {
+        debug('WE ARE ATTEMPTING TO BACKFILL A PENDING COPY');
+        this.monitor.count('cloud-mirror.concurrent-copy.already-locked', 1);
+        throw err;
+      }
       this.debug('cache entry not found for ' + rawUrl);
       let head = requestPromise.head({
         url: worldAddress,
@@ -160,10 +187,10 @@ class CacheManager {
         outcome.status = 'present';
 
         this.monitor.count('backfill', 1);
-
       } else {
         outcome.status = 'absent';
       }
+      mutex.unlock();
     } else if (cacheEntry.status === 'present') {
       outcome.status = 'present';
     } else if (cacheEntry.status === 'pending') {
@@ -219,6 +246,10 @@ class CacheManager {
       meta: urlInfo.meta,
       addresses: urlInfo.addresses,
     };
+  }
+
+  lockKey(rawUrl) {
+    return 'LOCK-' + this.cacheKey(rawUrl);
   }
 
   cacheKey(rawUrl) {
