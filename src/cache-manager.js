@@ -76,12 +76,14 @@ class CacheManager {
       let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
       let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
       let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
-
+      let contentLength = inputUrlInfo.meta.headers['content-length'];
+      
       let headers = {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
         'Content-Encoding': contentEncoding,
         'Content-MD5': contentMD5,
+        'Content-Length': contentLength,
       };
 
       let storageMetadata = {
