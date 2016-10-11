@@ -41,6 +41,7 @@ const HTTPHeaderToS3Prop = {
   'Content-Disposition': 'ContentDisposition',
   'Content-MD5': 'ContentMD5',
   'Content-Encoding': 'ContentEncoding',
+  'Content-Length': 'ContentLength', 
 };
 
 /**
