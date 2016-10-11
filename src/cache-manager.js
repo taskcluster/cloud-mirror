@@ -76,12 +76,14 @@ class CacheManager {
       let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
       let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
       let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
-
+      let contentLength = inputUrlInfo.meta.headers['content-length'];
+      
       let headers = {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
         'Content-Encoding': contentEncoding,
         'Content-MD5': contentMD5,
+        'Content-Length': contentLength,
       };
 
       let storageMetadata = {
@@ -94,7 +96,10 @@ class CacheManager {
       let start = process.hrtime();
 
       await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
-
+      if (contentLength != m.bytes) {
+        throw new Error('inputStream length: ' + m.bytes + ' doesn\'t match ' + contentLength);
+      }
+      
       let d = process.hrtime(start);
       let duration = d[0] * 1000 + d[1] / 1000000;
 
