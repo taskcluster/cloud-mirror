@@ -168,7 +168,7 @@ class CacheManager {
         mutex.lock();
         this.monitor.count('cloud-mirror.concurrent-copy.no-issues', 1);
       } catch (err) {
-        debug('WE ARE ATTEMPTING TO BACKFILL A PENDING COPY');
+        this.debug('WE ARE ATTEMPTING TO BACKFILL A PENDING COPY');
         this.monitor.count('cloud-mirror.concurrent-copy.already-locked', 1);
         throw err;
       }
