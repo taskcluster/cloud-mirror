@@ -320,7 +320,6 @@ class CacheManager {
   async requestPut(rawUrl) {
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
-    await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
     // ID is the identifier for a storage pool.  This is a combination of the
     // service and the subdivison of that service
     await this.queueSender.insert({
