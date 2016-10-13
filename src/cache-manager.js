@@ -77,11 +77,12 @@ class CacheManager {
       // is properly treated as a Stream and accessed only with the Stream API.
       // Without this I found that the AWS SDK would try to serialise the Request
       // object into JSON and upload that.  Yay software!
-      inputStream = inputStream.pipe(new stream.PassThrough());
 
       inputStream.on('data', chunk => {
         bytes += chunk.length;
       });
+
+      inputStream = inputStream.pipe(new stream.PassThrough());
 
       // We need the following pieces of information in the service-specific
       // implementations
