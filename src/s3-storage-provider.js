@@ -45,6 +45,7 @@ const HTTPHeaderToS3Prop = {
   'Content-Disposition': 'ContentDisposition',
   'Content-MD5': 'ContentMD5',
   'Content-Encoding': 'ContentEncoding',
+  'Content-Length': 'ContentLength',
 };
 
 /**
@@ -113,7 +114,9 @@ class S3StorageProvider extends StorageProvider {
       } else if (_.includes(MandatoryHTTPHeaders, httpHeader)) {
         assert(headers[httpHeader], `HTTP Header ${httpHeader} must be specified`);
       }
-      request[s3Prop] = headers[httpHeader];
+      if (headers[httpHeader]) {
+        request[s3Prop] = headers[httpHeader];
+      }
     });
 
     let options = {

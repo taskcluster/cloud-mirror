@@ -93,12 +93,14 @@ class CacheManager {
       let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
       let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
       let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
+      let contentLength = parseInt(inputUrlInfo.meta.headers['content-length'], 10);
 
       let headers = {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
         'Content-Encoding': contentEncoding,
         'Content-MD5': contentMD5,
+        'Content-Length': contentLength,
       };
 
       let storageMetadata = {
@@ -126,7 +128,6 @@ class CacheManager {
 
       this.debug(`uploaded ${rawUrl} ${bytes} bytes in ${duration/1000} seconds`);
 
-      let contentLength = parseInt(inputUrlInfo.meta.headers['content-length'], 10);
       if (contentLength && contentLength !== bytes) {
         let errmsg = `content length of input ${contentLength} is different to amount of bytes uploaded ${bytes}`;
         this.debug(errmsg);
