@@ -11,11 +11,11 @@ let request = require('request').defaults({
 });
 let fs = require('fs');
 let stream = require('stream');
-let meter = require('stream-meter');
 let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
 let assert = require('assert');
+let Mutex = require('shared-mutex').Mutex;
 
 const CACHE_STATES = ['present', 'pending', 'error'];
 
@@ -50,22 +50,39 @@ class CacheManager {
     assert(rawUrl);
     this.debug(`putting ${rawUrl}`);
 
+    let mutex = new Mutex(this.redis, this.lockKey(rawUrl));
+    try {
+      mutex.lock();
+      this.monitor.count('cloud-mirror.concurrent-copy.no-issues', 1);
+    } catch (err) {
+      debug('WE ARE ATTEMPTING TWO CONCURRENT COPIES FOR SAME RESOURCE, IGNORING');
+      this.monitor.count('cloud-mirror.concurrent-copy.already-locked', 1);
+      throw err;
+    }
+
     // Tell others that we're working on this url
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
 
     // Basically, any error here should do the same thing: pring the exception
     // in our logs then set the cache entry to status === 'error'
     try {
-      let m = meter();
-      m.on('error', err => {
-        this.debug(`error from stream-meter ${err.stack || err}`);
-      });
+      let bytes = 0;
 
       this.debug(`creating read stream for ${rawUrl}`);
       let inputUrlInfo = await this.createUrlReadStream(rawUrl);
       this.debug(`created read stream for ${rawUrl}`);
 
       let inputStream = inputUrlInfo.stream;
+      // We use a Passthrough to ensure that the return from the request library
+      // is properly treated as a Stream and accessed only with the Stream API.
+      // Without this I found that the AWS SDK would try to serialise the Request
+      // object into JSON and upload that.  Yay software!
+
+      inputStream.on('data', chunk => {
+        bytes += chunk.length;
+      });
+
+      inputStream = inputStream.pipe(new stream.PassThrough());
 
       // We need the following pieces of information in the service-specific
       // implementations
@@ -76,12 +93,14 @@ class CacheManager {
       let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
       let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
       let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
+      let contentLength = parseInt(inputUrlInfo.meta.headers['content-length'], 10);
 
       let headers = {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
         'Content-Encoding': contentEncoding,
         'Content-MD5': contentMD5,
+        'Content-Length': contentLength,
       };
 
       let storageMetadata = {
@@ -91,25 +110,46 @@ class CacheManager {
         addresses: JSON.stringify(inputUrlInfo.addresses),
       };
 
+      if (inputUrlInfo.meta.headers['content-length']) {
+        storageMetadata['upstream-content-length'] = inputUrlInfo.meta.headers['content-length'];
+      }
+
       let start = process.hrtime();
 
-      await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
+      await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
 
       let d = process.hrtime(start);
       let duration = d[0] * 1000 + d[1] / 1000000;
 
       this.monitor.measure('copy-duration-ms', duration);
-      this.monitor.measure('copy-size-bytes', m.bytes);
-      let speed = m.bytes / duration / 1.024;
+      this.monitor.measure('copy-size-bytes', bytes);
+      let speed = bytes / duration / 1.024;
       this.monitor.measure('copy-speed-kbps', speed);
 
-      this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
+      this.debug(`uploaded ${rawUrl} ${bytes} bytes in ${duration/1000} seconds`);
 
+      if (contentLength && contentLength !== bytes) {
+        let errmsg = `content length of input ${contentLength} is different to amount of bytes uploaded ${bytes}`;
+        this.debug(errmsg);
+        let err = new Error(errmsg);
+        err.upstreamLength = contentLength;
+        err.bytesUploaded = bytes;
+        // TODO: figure out why we're uploading more bytes than content length
+        // is and re-enable this as well as moving the below insertCacheEntry
+        // with 'present' back into the else of this if
+        //await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack);
+        //await this.storageProvider.purge(rawUrl);
+        this.debug(`original content-length: ${contentLength} differs from size of upload ${bytes}`);
+      } // else {
+      this.debug('finished upload');
       await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
-
+      //}
     } catch (err) {
       this.debug(`error putting ${rawUrl}: ${err.stack || err}`);
+      await this.storageProvider.purge(rawUrl);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
+    } finally {
+      mutex.unlock();
     }
   }
 
@@ -123,6 +163,15 @@ class CacheManager {
     };
 
     if (!cacheEntry) {
+      let mutex = new Mutex(this.redis, this.lockKey(rawUrl));
+      try {
+        mutex.lock();
+        this.monitor.count('cloud-mirror.concurrent-copy.no-issues', 1);
+      } catch (err) {
+        this.debug('WE ARE ATTEMPTING TO BACKFILL A PENDING COPY');
+        this.monitor.count('cloud-mirror.concurrent-copy.already-locked', 1);
+        throw err;
+      }
       this.debug('cache entry not found for ' + rawUrl);
       let head = requestPromise.head({
         url: worldAddress,
@@ -145,10 +194,10 @@ class CacheManager {
         outcome.status = 'present';
 
         this.monitor.count('backfill', 1);
-
       } else {
         outcome.status = 'absent';
       }
+      mutex.unlock();
     } else if (cacheEntry.status === 'present') {
       outcome.status = 'present';
     } else if (cacheEntry.status === 'pending') {
@@ -192,18 +241,16 @@ class CacheManager {
       throw err;
     });
 
-    // We use a Passthrough to ensure that the return from the request library
-    // is properly treated as a Stream and accessed only with the Stream API.
-    // Without this I found that the AWS SDK would try to serialise the Request
-    // object into JSON and upload that.  Yay software!
-    let passthrough = new stream.PassThrough();
-
     return {
-      stream: obj.pipe(passthrough),
+      stream: obj,
       url: urlInfo.url,
       meta: urlInfo.meta,
       addresses: urlInfo.addresses,
     };
+  }
+
+  lockKey(rawUrl) {
+    return 'LOCK-' + this.cacheKey(rawUrl);
   }
 
   cacheKey(rawUrl) {
@@ -261,10 +308,19 @@ class CacheManager {
     return result;
   }
 
+  async deleteCacheEntry(rawUrl) {
+    let key = this.cacheKey(rawUrl);
+    try {
+      await this.redis.delAsync(key);
+    } catch (err) {
+      this.monitor.reportError(err);
+      this.monitor.count('redis.cache-delete-failure', 1);
+    }
+  }
+
   async requestPut(rawUrl) {
     assert(rawUrl);
     this.debug(`sending put request for ${rawUrl}`);
-    await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
     // ID is the identifier for a storage pool.  This is a combination of the
     // service and the subdivison of that service
     await this.queueSender.insert({
