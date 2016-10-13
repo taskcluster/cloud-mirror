@@ -198,14 +198,18 @@ let load = base.loader({
         listenerOpts.sqs = sqs;
 
         listenerOpts.handler = async (msg, changeTimeout) => {
-          debug('received message!');
-          assert(typeof msg.id === 'string', 'id must be string');
-          assert(typeof msg.url === 'string', 'url must be string');
-          debug('this message checks out');
+          try {
+            debug('received message!');
+            assert(typeof msg.id === 'string', 'id must be string');
+            assert(typeof msg.url === 'string', 'url must be string');
+            debug('this message checks out');
 
-          let selectedCacheManagers = cacheManagers.filter(x => x.id === msg.id);
+            let selectedCacheManagers = cacheManagers.filter(x => x.id === msg.id);
 
-          await Promise.all(selectedCacheManagers.map(x => x.put(msg.url)));
+            await Promise.all(selectedCacheManagers.map(x => x.put(msg.url)));
+          } catch (err) {
+            console.log(err.stack);
+          }
         };
         
         let listener = new sqsSimple.QueueListener(listenerOpts);
