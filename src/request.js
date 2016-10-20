@@ -160,6 +160,47 @@ async function makeRequest(opts) {
     // condition that they timeout if they aren't responded to quickly enough
     request.setTimeout(opts.timeout);
 
+    request.on('error', err => {
+      reject(err);
+    });
+
+    request.on('socket', socket => {
+      debug('have a socket');
+
+      socket.on('error', err => {
+        debug('socket error');
+        reject(err);
+      });
+
+      socket.on('close', had_error => {
+        reject(new RequestError('Socket closed with error'));
+      });
+
+    });
+
+    request.on('response', response => {
+      if (!response.statusCode) {
+        reject(new RequestError('Request has invalid status code'));
+      }
+      response.socket.on('error', err => {
+        debug('response socket error: ' + err.stack || err);
+      });
+      resolve(response);
+    });
+
+    request.on('abort', () => {
+      reject(new RequestError('Request aborted by client (us)'));
+    });
+
+    request.on('aborted', () => {
+      reject(new RequestError('Request aborted by server (them)'));
+    });
+
+    request.on('timeout', () => {
+      request.abort();
+      reject(new RequestError('Request timeout occured'));
+    });
+    
     // Set all headers which are specified in the request
     for (let key of Object.keys(opts.headers)) {
       request.setHeader(key, opts.headers[key]);
@@ -191,40 +232,6 @@ async function makeRequest(opts) {
     } else {
       request.end();
     }
-
-    request.on('socket', socket => {
-      debug('have a socket');
-
-      socket.on('error', err => {
-        debug('socket error');
-        reject(err);
-      });
-
-      socket.on('close', had_error => {
-        reject(new RequestError('Socket closed with error'));
-      });
-
-    });
-
-    request.on('response', response => {
-      response.socket.on('error', err => {
-        debug('response socket error: ' + err.stack || err);
-      });
-      resolve(response);
-    });
-
-    request.on('abort', () => {
-      reject(new RequestError('Request aborted by client (us)'));
-    });
-
-    request.on('aborted', () => {
-      reject(new RequestError('Request aborted by server (them)'));
-    });
-
-    request.on('timeout', () => {
-      request.abort();
-      reject(new RequestError('Request timeout occured'));
-    });
   });
 }
 

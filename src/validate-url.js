@@ -1,8 +1,4 @@
-let request = require('request-promise').defaults({
-  followRedirect: false,
-  simple: false,
-  resolveWithFullResponse: true,
-});
+let request = require('./request').request;
 let debug = require('debug')('cloud-mirror:follow-redirects');
 let assert = require('assert');
 let url = require('url');
@@ -64,8 +60,9 @@ async function validateUrl(
       return false;
     }
 
-    let result = await request.head(u);
+    let result = await request(u, {method: 'HEAD'});
     let sc = result.statusCode;
+    assert(sc);
 
     // We store the chain of URLs that make up this redirection.  This could be
     // used if we wished to provide an audit trail in consuming systems

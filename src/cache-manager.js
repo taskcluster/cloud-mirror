@@ -6,10 +6,7 @@ let requestPromise = require('request-promise').defaults({
   simple: false,
   resolveWithFullResponse: true,
 });
-let request = require('request').defaults({
-  followRedirect: false,
-});
-let request2 = require('./request').request;
+let request = require('./request').request;
 let fs = require('fs');
 let stream = require('stream');
 let debugModule = require('debug');
@@ -131,6 +128,7 @@ class CacheManager {
 
     if (!cacheEntry) {
       this.debug('cache entry not found for ' + rawUrl);
+
       let head = requestPromise.head({
         url: worldAddress,
         followRedirect: true,
@@ -187,7 +185,7 @@ class CacheManager {
       throw new Error('URL is invalid: ' + rawUrl);
     }
 
-    let response = await request2(urlInfo.url, {
+    let response = await request(urlInfo.url, {
       headers: {
         'Accept-Encoding': '*',
       },

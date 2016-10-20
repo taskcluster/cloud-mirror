@@ -18,6 +18,13 @@ describe('request', () => {
     // just need to change this field.
     assume(response.headers.server).is.OK;
   });
+
+  for (let code of [200, 302, 404, 500]) {
+    it('should handle a ' + code, async () => {
+      let response = await subject.request(httpsBin + '/status/' + code);
+      assume(response.statusCode).equals(code);
+    });
+  }
   
   it('should complete an HTTPS GET request', async () => {
     let response = await subject.request(httpsBin + '/user-agent');
@@ -87,5 +94,28 @@ describe('request', () => {
         rej(err);
       }
     });
+  });
+
+  describe('bad certs', () => {
+    let badCerts = {
+      expired: 'https://expired.badssl.com/',
+      'wrong-host': 'https://wrong.host.badssl.com/',
+      'self-signed': 'https://self-signed.badssl.com/',
+      'untrusted-root': 'https://untrusted-root.badssl.com/',
+      // 'revoked': 'https://revoked.badssl.com/',
+    };
+
+    for (let type of Object.keys(badCerts)) {
+      it('should fail on ' + type + ' cert', async () => {
+        try {
+          await subject.request(badCerts[type]);
+          return Promise.reject(new Error('should have thrown'));
+        } catch (err) {
+          return Promise.resolve();
+        }
+      });
+
+    }
+
   });
 });
