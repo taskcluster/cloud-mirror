@@ -158,6 +158,7 @@ describe('Integration Tests', () => {
       let expected = await request(testUrl, {
         headers: {
           'Accept-Encoding': '*',
+          'User-Agent': 'cloud-mirror/1.0.0',
         },
       });
       let actual1 = await request(expectedRedirect);

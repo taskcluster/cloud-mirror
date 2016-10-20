@@ -9,6 +9,7 @@ let requestPromise = require('request-promise').defaults({
 let request = require('request').defaults({
   followRedirect: false,
 });
+let request2 = require('./request').request;
 let fs = require('fs');
 let stream = require('stream');
 let debugModule = require('debug');
@@ -186,20 +187,19 @@ class CacheManager {
       throw new Error('URL is invalid: ' + rawUrl);
     }
 
-    let obj = request.get({
-      uri: urlInfo.url,
+    let response = await request2(urlInfo.url, {
       headers: {
         'Accept-Encoding': '*',
       },
     });
 
-    obj.on('error', err => {
+    response.on('error', err => {
       this.debug(`error reading input url stream ${err.stack || err}`);
       throw err;
     });
 
     return {
-      stream: obj,
+      stream: response,
       url: urlInfo.url,
       meta: urlInfo.meta,
       addresses: urlInfo.addresses,
