@@ -11,7 +11,6 @@ let request = require('request').defaults({
 });
 let fs = require('fs');
 let stream = require('stream');
-let meter = require('stream-meter');
 let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
@@ -56,16 +55,23 @@ class CacheManager {
     // Basically, any error here should do the same thing: pring the exception
     // in our logs then set the cache entry to status === 'error'
     try {
-      let m = meter();
-      m.on('error', err => {
-        this.debug(`error from stream-meter ${err.stack || err}`);
-      });
-
       this.debug(`creating read stream for ${rawUrl}`);
       let inputUrlInfo = await this.createUrlReadStream(rawUrl);
       this.debug(`created read stream for ${rawUrl}`);
 
+      let bytes = 0;
+
       let inputStream = inputUrlInfo.stream;
+
+      inputStream.on('data', chunk => {
+        bytes += chunk.length;
+      });
+
+      // We need a passthrough here because the requests-library generated
+      // response seems to trick the aws-sdk stream reading functionality into
+      // doing someting exceptionally stupid.
+      let passthrough = new stream.PassThrough();
+      inputStream = inputStream.pipe(passthrough);
 
       // We need the following pieces of information in the service-specific
       // implementations
@@ -93,17 +99,17 @@ class CacheManager {
 
       let start = process.hrtime();
 
-      await this.storageProvider.put(rawUrl, inputStream.pipe(m), headers, storageMetadata);
+      await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
 
       let d = process.hrtime(start);
       let duration = d[0] * 1000 + d[1] / 1000000;
 
       this.monitor.measure('copy-duration-ms', duration);
-      this.monitor.measure('copy-size-bytes', m.bytes);
-      let speed = m.bytes / duration / 1.024;
+      this.monitor.measure('copy-size-bytes', bytes);
+      let speed = bytes / duration / 1.024;
       this.monitor.measure('copy-speed-kbps', speed);
 
-      this.debug(`uploaded ${rawUrl} ${m.bytes} bytes in ${duration/1000} seconds`);
+      this.debug(`uploaded ${rawUrl} ${bytes} bytes in ${duration/1000} seconds`);
 
       await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
 
@@ -192,14 +198,8 @@ class CacheManager {
       throw err;
     });
 
-    // We use a Passthrough to ensure that the return from the request library
-    // is properly treated as a Stream and accessed only with the Stream API.
-    // Without this I found that the AWS SDK would try to serialise the Request
-    // object into JSON and upload that.  Yay software!
-    let passthrough = new stream.PassThrough();
-
     return {
-      stream: obj.pipe(passthrough),
+      stream: obj,
       url: urlInfo.url,
       meta: urlInfo.meta,
       addresses: urlInfo.addresses,
