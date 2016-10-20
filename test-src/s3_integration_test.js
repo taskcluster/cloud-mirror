@@ -16,7 +16,7 @@ let zlib = require('zlib');
 
 let debug = require('debug')('s3-integration-tests');
 
-let httpbin = 'https://httpbin.org';
+let httpbin = 'https://taskcluster-httpbin.herokuapp.com';
 
 let cm = require('../lib/cache-manager');
 let sp = require('../lib/storage-provider');
@@ -163,8 +163,64 @@ describe('Integration Tests', () => {
       let actual1 = await request(expectedRedirect);
       let actual2 = await request(expectedRedirect);
 
-      assume(actual1.body).equals(expected.body);
-      assume(actual2.body).equals(actual1.body);
+      if (expected.headers['content-type'] === 'application/json') {
+        let expectedBody;
+        let actual1Body;
+        let actual2Body;
+
+        // Heroku sadly puts in a useless (to us) header which changes on each
+        // request.  Ideally we'd use the same .data event to get the data from
+        // the actual request made by the copy process, but this is a little
+        // bit of work so let's be lazy and account for the single header
+        // that's different between requests
+        let badHeaders = ['X-Request-Id', 'Connect-Time', 'Total-Route-Time'];
+        if (expected.headers['transfer-encoding'] !== 'chunked') {
+          // Non-chunked encoded messages from httpbin are easy
+          expectedBody = JSON.parse(expected.body);
+          actual1Body = JSON.parse(actual1.body);
+          actual2Body = JSON.parse(actual2.body);
+          for (let t of [expectedBody, actual1Body, actual2Body]) {
+            for (let header of badHeaders) {
+              if (t.headers && t.headers[header]) {
+                delete t.headers[header];
+              }
+            }
+          }
+        } else {
+          // But chunked encoded messages are hard
+          let fix = (q) => {
+            q = q.replace(/\n/g, ',');
+            if (q.charAt(q.length - 1)) {
+              q = q.slice(0, q.length - 1);
+            }
+            q = '[' + q + ']';
+            q = JSON.parse(q);
+            return q;
+          };
+
+          expectedBody = fix(expected.body);
+          actual1Body = fix(actual1.body);
+          actual2Body = fix(actual2.body);
+
+          for (let r of [expectedBody, actual1Body, actual2Body]) {
+            for (let m of r) {
+              for (let header of badHeaders) {
+                if (m.headers && m.headers[header]) {
+                  delete m.headers[header];
+                }
+              }
+            }
+          }
+        }
+        // Here's the end of the stuff for dealing with the Heroku headers
+
+        assume(actual1Body).deeply.equals(expectedBody);
+        assume(actual2Body).deeply.equals(expectedBody);
+      } else {
+        assume(expected.body).equals(actual1.body);
+        assume(expected.body).equals(actual2.body);
+      }
+
     });
   }
 
