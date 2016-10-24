@@ -88,8 +88,7 @@ let load = base.loader({
       };
       //sqsCfg.logger = awsDebugLoggerBridge;
       let sqs = new aws.SQS(sqsCfg);
-      let m = monitor.prefix('sqs');
-      //m.patchAWS(sqs);
+      monitor.patchAWS(sqs);
       return sqs;
     },
   },
@@ -329,8 +328,7 @@ let load = base.loader({
 
         // Create the actual S3 object.
         let s3 = await s3Factory(region);
-        let m = monitor.prefix('s3');
-        //m.patchAWS(s3)
+        monitor.patchAWS(s3);
 
         let storageProvider = new S3StorageProvider({
           service: 's3',
