@@ -76,15 +76,6 @@ class S3StorageProvider extends StorageProvider {
   }
 
   /**
-   * Ensure that our bucket exists
-   */
-  async init() {
-    this.debug(`creating ${this.bucket}`);
-    await createS3Bucket(this.s3, this.bucket, this.region, this.acl, this.lifespan);
-    this.debug(`creating ${this.bucket}`);
-  }
-
-  /**
    * StorageProvider.put() implementation for S3
    */
   async put(rawUrl, inputStream, headers, storageMetadata) {

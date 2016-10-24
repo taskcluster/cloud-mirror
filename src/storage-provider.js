@@ -33,12 +33,6 @@ class StorageProvider {
   }
 
   /**
-   * Perform any async init code require for this storage provider.  Default action
-   * is for there to be no init code.
-   */
-  async init() { }
-
-  /**
    * Store a file with the StorageProvider.  This must be overridden with a method
    * which takes:
    *   - rawUrl: the original input url as plain text

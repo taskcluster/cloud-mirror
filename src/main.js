@@ -20,6 +20,7 @@ let uuid = require('uuid');
 let aws = require('aws-sdk');
 let CacheManager = require('./cache-manager').CacheManager;
 let S3StorageProvider = require('./s3-storage-provider').S3StorageProvider;
+let createS3Bucket = require('./s3-storage-provider').createS3Bucket;
 let sqsSimple = require('sqs-simple');
 
 let bluebird = require('bluebird');
@@ -267,22 +268,24 @@ let load = base.loader({
     },
   },
 
-  cacheManagers: {
-    requires: ['cfg', 'redis', 'profile', 'queueSender', 'monitor'],
-    setup: async ({cfg, redis, profile, queueSender, monitor}) => {
-
-      let cacheManagers = [];
-      let s3regions = cfg.backend.s3.regions.split(',');
-
-      for (let region of s3regions) {
-        let bucket = cfg.backend.s3.bucketBase + profile + '-' + region;
-
+  /*
+   * Rather than duplicating this logic in a couple different places,
+   * let's create a factory that can give us properly configured
+   * S3 objects given a region
+   */
+  s3Factory: {
+    requires: ['cfg'],
+    setup: async ({cfg}) => {
+      return function(region) {
         // We want to log aws-sdk calls so we write a custom file like object
         // which uses a debug function instead of the default of writing
         // directly to stdout
         let awsCfg = _.omit(cfg.aws, 'region');
+
         awsCfg.region = region;
+
         let s3Debugger = debugModule('cloud-mirror:aws-s3:' + region);
+
         let awsDebugLoggerBridge = {
           write: x => {
             for (let y of x.split('\n')) {
@@ -290,10 +293,42 @@ let load = base.loader({
             }
           },
         };
+
         awsCfg.logger = awsDebugLoggerBridge;
 
+        return new aws.S3(awsCfg);      
+      };
+    },
+  },
+
+  s3buckets: {
+    requires: ['cfg', 'profile', 'monitor', 's3Factory'],
+    setup: async ({cfg, profile, monitor, s3Factory}) => {
+      let s3Regions = cfg.backend.s3.regions.split(',');
+      await Promise.all(s3Regions.map(async region => {
+        let bucket = cfg.backend.s3.bucketBase + profile + '-' + region;
+        let acl = cfg.backend.s3.acl;
+        let lifespan = cfg.backend.s3.lifespan;
+        let s3 = await s3Factory(region);
+        await createS3Bucket(s3, bucket, region, acl, lifespan);
+        console.log('Finished %s', region);
+      }));
+      console.log('Finished all regions');
+    },
+  },
+
+  cacheManagers: {
+    requires: ['cfg', 'redis', 'profile', 'queueSender', 'monitor', 's3Factory'],
+    setup: async ({cfg, redis, profile, queueSender, monitor, s3Factory}) => {
+
+      let cacheManagers = [];
+      let s3regions = cfg.backend.s3.regions.split(',');
+
+      for (let region of s3regions) {
+        let bucket = cfg.backend.s3.bucketBase + profile + '-' + region;
+
         // Create the actual S3 object.
-        let s3 = new aws.S3(awsCfg);
+        let s3 = await s3Factory(region);
         let m = monitor.prefix('s3');
         //m.patchAWS(s3)
 
@@ -308,8 +343,6 @@ let load = base.loader({
           lifespan: cfg.backend.s3.lifespan,
           monitor: monitor.prefix(`s3-${region}`),
         });
-
-        await storageProvider.init();
 
         let cacheManager = new CacheManager({
           allowedPatterns: compilePatterns(cfg.app.allowedPatterns),
