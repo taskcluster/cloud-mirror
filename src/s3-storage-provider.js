@@ -146,7 +146,7 @@ class S3StorageProvider extends StorageProvider {
   async expirationDate(response) {
     let header = response.headers['x-amz-expiration'];
     if (!header) {
-      throw new Error(JSON.stringify(response.headers, null, 2));
+      throw new Error('Missing x-amz-expiration');
     }
     // This header is sent in such a silly format.  Using cookie format or
     // sending the value without packing it in with a second value (rule-id)

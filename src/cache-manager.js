@@ -41,6 +41,10 @@ class CacheManager {
     this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
     
     this.monitor = config.monitor.prefix(this.id);
+
+    this.urlValidator = (u) => {
+      return validateUrl(u, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
+    };
   }
 
   async put(rawUrl) {
@@ -127,30 +131,28 @@ class CacheManager {
     };
 
     if (!cacheEntry) {
-      this.debug('cache entry not found for ' + rawUrl);
+      this.debug('cache entry not found for %s (%s)', rawUrl, worldAddress);
 
-      let head = requestPromise.head({
-        url: worldAddress,
-        followRedirect: true,
-        maxRedirects: this.redirectLimit,
-      });
+      let finalUrl = await this.urlValidator(worldAddress);
+      if (finalUrl) {
+        let head = await request(finalUrl.url, {method: 'head'});
+        if (head.statusCode >= 200 && head.statusCode < 300) {
+          this.debug('found %s (%s) in storageProvider, backfilling cache', rawUrl, worldAddress);
 
-      if (head.statusCode >= 200 && head.statusCode < 300) {
-        this.debug(`found ${rawUrl} in storageProvider, backfilling cache`);
+          let expires = await this.storageProvider.expirationDate(head);
 
-        let expires = await this.storageProvider.expirationDate(head);
+          let setTTL = expires - new Date();
+          setTTL /= 1000;
+          setTTL -= 30 * 60;
 
-        let setTTL = expires - new Date();
-        setTTL /= 1000;
-        setTTL -= 30 * 60;
-
-        this.debug(`backfilling cache for ${rawUrl}`);
-        await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
-        this.debug(`backfilled cache for ${rawUrl}`);
-        outcome.status = 'present';
-
-        this.monitor.count('backfill', 1);
-
+          this.debug(`backfilling cache for ${rawUrl}`);
+          await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
+          this.debug(`backfilled cache for ${rawUrl}`);
+          outcome.status = 'present';
+          this.monitor.count('backfill', 1);
+        } else {
+          outcome.status = 'absent';
+        }
       } else {
         outcome.status = 'absent';
       }
@@ -179,7 +181,7 @@ class CacheManager {
 
   async createUrlReadStream(rawUrl) {
     assert(rawUrl);
-    let urlInfo = await validateUrl(rawUrl, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
+    let urlInfo = await this.urlValidator(rawUrl);
 
     if (!urlInfo) {
       throw new Error('URL is invalid: ' + rawUrl);
