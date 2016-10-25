@@ -106,7 +106,11 @@ api.declare({
             ensureSSL: this.ensureSSL,
           });
         } catch (err) {
-          if (err.statusCode) {
+          if (err.code === 'InvalidUrl') {
+            return res.status(403).json({
+              msg: 'Invalid URL requested',
+            });
+          } else if (err.statusCode) {
             return res.status(err.statusCode).json({
               statusCode: err.statusCode,
               msg: err.message,

@@ -48,6 +48,7 @@ async function followRedirect(opts) {
       let err = new Error('URL does not validate: ' + u);
       err.url = u;
       err.addresses = addresses;
+      err.code = 'InvalidUrl';
       throw err;
     }
 
@@ -62,6 +63,7 @@ async function followRedirect(opts) {
       err.statusCode = code;
       err.addresses = addresses;
       err.url = u;
+      err.code = 'UnexpectedStatus';
       throw err;
     }
   
@@ -86,6 +88,7 @@ async function followRedirect(opts) {
         let err = new Error('Redirect missing location header');
         err.urlFrom = u;
         err.urlTo = locHead;
+        err.code = 'RedirectMissingLocationHeader';
         throw err;
       }
       u = url.resolve(u, locHead);
@@ -94,6 +97,7 @@ async function followRedirect(opts) {
       let err = new Error('Unexpected HTTP Status: ' + code);
       err.statusCode = code;
       err.headers = result.headers;
+      err.code = 'BadHTTPStatus';
       throw err;
     }
   }
