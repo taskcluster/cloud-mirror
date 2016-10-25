@@ -119,7 +119,7 @@ describe('Integration Tests', () => {
   });
 
   after(async () => {
-    await emptyBucket(cfg.aws, cacheManager.storageProvider.bucket);
+    //await emptyBucket(cfg.aws, cacheManager.storageProvider.bucket);
   });
 
   function assertRedirected(expected, actual) {
