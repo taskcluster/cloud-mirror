@@ -99,22 +99,26 @@ api.declare({
       // instead of a more complicated structure
 
       if (x === 0 && (result.status === 'absent' || result.status === 'error')) {
-        let validUrl;
         try {
-          validUrl = await validateUrl(url, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
-        } catch (err) {
-          return res.status(err.httpCode).json({
-            msg: 'upstream location returns error.  propogating',
-            upstreamHttpCode: err.httpCode,
+          let finalUrl = await validateUrl({
+            url: url,
+            allowedPatterns: this.allowedPatterns,
+            ensureSSL: this.ensureSSL,
           });
+        } catch (err) {
+          if (err.statusCode) {
+            return res.status(err.statusCode).json({
+              statusCode: err.statusCode,
+              msg: err.message,
+            });
+          } else {
+            debug('error while validating url: %s', err.stack || err);
+            return res.status(500).json({
+              msg: 'error while validating url',
+            });
+          }
         }
 
-        if (!validUrl) {
-          return res.status(403).json({
-            msg: 'URL is not allowed',
-            url: url,
-          });
-        }
         // TODO: Should only status === 'error' be considered a miss?  A file
         // that's never been requested before could never be in the cache, so
         // it not being there really is not an error case

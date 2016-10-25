@@ -3,108 +3,107 @@ let debug = require('debug')('cloud-mirror:follow-redirects');
 let assert = require('assert');
 let url = require('url');
 
-/**
- * Follow redirects in a secure way, unless configured not to.  This function
- * will ensure that all redirects in a redirect chain are pointing to HTTPS
- * urls and not HTTP urls.  This is used to ensure that everything in the Cloud
- * Mirror storage was obtained through with an HTTP chain of custody.  If the
- * config parameter 'allowInsecureRedirect' is a truthy value, HTTP urls and
- * redirections from HTTPS to HTTP resources will be allowed.
- * 
- * This will return `false` if the url is invalid, an object with information if
- * it is valid and will throw if an error occured while doing the redirects
- */
-async function validateUrl(
-    firstUrl,
-    allowedPatterns = [/.*/],
-    redirectLimit = 30,
-    ensureSSL = true,
-    monitor = undefined) {
-  // Number of redirects to follow
+// Just for STATUS_CODES
+let http = require('http');
+
+// Validate a URL against a list of patterns.  If any pattern is matching, then
+// it's considered valid.  This means that it is a whitelist and not a
+// blacklist.  Checking for SSL is done in the src/request.js file instead of
+// here to avoid duplicating that check
+function validateUrl(u, allowedPatterns) {
+  for (let pattern of allowedPatterns) {
+    if (pattern.test(u)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Follow a redirect and return the final URL, headers of the final resource
+// and a list of addresses which were redirected to.  If `ensureSSL` is
+// specified then all urls in the redirect chain *must* be HTTPS urls.
+//
+// This function either throws an exception in error cases and will return an
+// object in the shape:
+// { url: <finalUrl>,
+//   headers: <headers of finalUrl>,
+//   statusCode: <http status code of finalUrl>,
+//   addresses: <list of e.g. {c: <statusCode>, u: <url>, t: <iso datetime>} }
+async function followRedirect(opts) {
+  assert(typeof opts === 'object');
+  assert(typeof opts.url === 'string');
+  assert(typeof opts.ensureSSL !== 'undefined');
+  assert(Array.isArray(opts.allowedPatterns));
+  let maxRedirects = 30;
+  if (opts.maxRedirects) {
+    assert(typeof opts.maxRedirects === 'number');
+    maxRedirects = opts.maxRedirects;
+  } 
+
+  let u = opts.url;
   let addresses = [];
 
-  assert(firstUrl, 'Must provide URL to check');
-
-  // What we're saying here is that all URLs passed through the redirector must
-  // start with https: in order to avoid causing this function to throw
-  let checkSSL = (u) => url.parse(u).protocol === 'https:';
-
-  // If we aren't enforcing secure redirects, it's just easier to make the
-  // validation function a no-op
-  if (!ensureSSL) {
-    checkSSL = () => true;
-  }
-
-  let patterns = allowedPatterns;
-  // Now, let's check that the patterns we've given this function are valid
-  let checkPatterns = (u) => {
-    let valid = false;
-    for (let p of patterns) {
-      if (p.test(u)) {
-        valid = true;
-        break;
-      }
-    }
-    return valid;
-  };
-
-  // the u variable points to the URL in the current redirect chain
-  let u = firstUrl;
-
-  // the c variable is short for continue and is used to decide whether
-  // to continue following redirects
-  let c = true;
-
-  for (let i = 0 ; c && i < redirectLimit ; i++) {
-    if (!checkSSL(u) || !checkPatterns(u)) {
-      return false;
+  for (let x = 0 ; x < maxRedirects ; x++) {
+    if (!validateUrl(u, opts.allowedPatterns)) {
+      let err = new Error('URL does not validate: ' + u);
+      err.url = u;
+      err.addresses = addresses;
+      throw err;
     }
 
-    let result = await request(u, {method: 'HEAD'});
-    let sc = result.statusCode;
-    assert(sc);
-
-    // We store the chain of URLs that make up this redirection.  This could be
-    // used if we wished to provide an audit trail in consuming systems
-    addresses.push({
-      code: sc,
-      url: u,
-      t: new Date(),
+    let result = await request(u, {
+      method: 'HEAD',
+      allowUnsafeUrls: !opts.ensureSSL,
     });
 
-    if (sc >= 200 && sc < 300) {
-      // A 200 series redirect means that we're done.  We will not follow a 200
-      // URL that has a Location: header because that's not part of the spec.
-      // We can easily change this bit of code to make the choice of redirecting or
-      // not based on the presence of the Location: header later if we choose.
-      debug(`Follwed all redirects: ${addresses.map(x => x.url).join(' --> ')}`);
+    let code = result.statusCode;
+    if (!http.STATUS_CODES[code.toString()]) {
+      let err = new Error('Unexpected Status Code: ' + code + ' at ' + u);
+      err.statusCode = code;
+      err.addresses = addresses;
+      err.url = u;
+      throw err;
+    }
+  
+    addresses.push({
+      c: code,
+      u: u,
+      t: new Date().toISOString(),
+    });
+
+    if (code >= 200 && code < 300 || code === 304) {
+      debug('found a good resource, returning');
       return {
         url: u,
-        meta: result,
-        addresses,
+        statusCode: code,
+        headers: result.headers,
+        addresses: addresses,
       };
-    } else if (sc >= 300 && sc < 400 && sc !== 304 && sc !== 305) {
-      // 304 and 305 are not redirects
-      assert(result.headers.location);
-      let newU = result.headers.location;
-      newU = url.resolve(u, newU);
-      u = url.resolve(u, newU);
-    } else {
-      // Consider using an exponential backoff and retry here
-      let err = new Error(`error reading input url.  ${sc}`);
-      err.code = 'HTTPError';
-      err.httpCode = sc;
-      if (monitor) {
-        monitor.count('bad-input', 1);
-        monitor.count(`bad-input.${sc}`, 1);
-        monitor.reportError(err);
+    } else if (code >= 300 && code < 400 && code !== 305) {
+      debug('found a redirect, redirecting');
+      let locHead = result.headers.location;
+      if (!locHead) {
+        let err = new Error('Redirect missing location header');
+        err.urlFrom = u;
+        err.urlTo = locHead;
+        throw err;
       }
+      u = url.resolve(u, locHead);
+    } else {
+      debug('found bad status code');
+      let err = new Error('Unexpected HTTP Status: ' + code);
+      err.statusCode = code;
+      err.headers = result.headers;
       throw err;
     }
   }
 
-  debug(`Limit of ${redirectLimit} redirects reached:` + addresses.map(x => x.url).join(' --> '));
-  return false;
-};
+  // If we're getting here, it's a sign that we've hit the maximum number
+  // of redirects.  Let's bail here.
+  let err = new Error('Too many redirects');
+  err.addresses = addresses;
+  err.lastUrl = u;
+  throw err;
+}
 
-module.exports = validateUrl;
+module.exports = followRedirect;

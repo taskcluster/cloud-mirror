@@ -88,11 +88,13 @@ production:
     trustProxy: true
 
 development:
+  backend:
+    count: 1
   sqsSimple:
     queueName: cloud-mirror-development
   app:
     ensureSSL: false
-    maxWaitForCachedCopy: 10000 #ms
+    maxWaitForCachedCopy: 100000 #ms
     allowedPatterns:
       - '^.*/'
   redis:

@@ -8,7 +8,6 @@ let requestPromise = require('request-promise').defaults({
 });
 let request = require('./request').request;
 let fs = require('fs');
-let stream = require('stream');
 let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
@@ -43,7 +42,11 @@ class CacheManager {
     this.monitor = config.monitor.prefix(this.id);
 
     this.urlValidator = (u) => {
-      return validateUrl(u, this.allowedPatterns, this.redirectLimit, this.ensureSSL, this.monitor);
+      return validateUrl({
+        url: u,
+        allowedPatterns: this.allowedPatterns,
+        ensureSSL: this.ensureSSL,
+      });
     };
   }
 
@@ -69,32 +72,45 @@ class CacheManager {
         bytes += chunk.length;
       });
 
-      // We need a passthrough here because the requests-library generated
-      // response seems to trick the aws-sdk stream reading functionality into
-      // doing someting exceptionally stupid.
-      let passthrough = new stream.PassThrough();
-      inputStream = inputStream.pipe(passthrough);
+      inputStream.on('error', async err => {
+        console.error(err.stack || err);
+        await this.storageProvider.purge(rawUrl);
+        await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
+      });
+
+      let headers = {};
 
       // We need the following pieces of information in the service-specific
       // implementations
-      let contentType = inputUrlInfo.meta.headers['content-type'];
-      contentType = contentType || 'application/octet-stream';
-      let upstreamEtag = inputUrlInfo.meta.headers['etag'];
-      upstreamEtag = upstreamEtag || '';
-      let contentEncoding = inputUrlInfo.meta.headers['content-encoding'];
-      let contentDisposition = inputUrlInfo.meta.headers['content-disposition'];
-      let contentMD5 = inputUrlInfo.meta.headers['content-md5'];
+      let contentType = inputUrlInfo.headers['content-type'];
+      if (contentType) {
+        headers['Content-Type'] = contentType;
+      }
 
-      let headers = {
-        'Content-Type': contentType,
-        'Content-Disposition': contentDisposition,
-        'Content-Encoding': contentEncoding,
-        'Content-MD5': contentMD5,
-      };
+      let contentEncoding = inputUrlInfo.headers['content-encoding'];
+      if (contentEncoding) {
+        headers['Content-Encoding'] = contentEncoding;
+      }
+
+      let contentDisposition = inputUrlInfo.headers['content-disposition'];
+      if (contentDisposition) {
+        headers['Content-Disposition'] = contentDisposition; 
+      }
+
+      let contentMD5 = inputUrlInfo.headers['content-md5'];
+      if (contentMD5) {
+        headers['Content-MD5'] = contentMD5;
+      }
+
+      let contentLength = inputUrlInfo.headers['content-length'];
+      if (contentLength) {
+        headers['Content-Length'] = contentLength;
+      }
 
       let storageMetadata = {
-        'upstream-etag': upstreamEtag,
-        url: rawUrl,
+        'upstream-etag': inputUrlInfo.headers['etag'] || '<unknown>',
+        'upstream-content-length': contentLength || '<unknown>',
+        'upstream-url': rawUrl,
         stored: new Date().toISOString(),
         addresses: JSON.stringify(inputUrlInfo.addresses),
       };
@@ -133,26 +149,30 @@ class CacheManager {
     if (!cacheEntry) {
       this.debug('cache entry not found for %s (%s)', rawUrl, worldAddress);
 
-      let finalUrl = await this.urlValidator(worldAddress);
-      if (finalUrl) {
-        let head = await request(finalUrl.url, {method: 'head'});
-        if (head.statusCode >= 200 && head.statusCode < 300) {
-          this.debug('found %s (%s) in storageProvider, backfilling cache', rawUrl, worldAddress);
+      let cacheResource;
 
-          let expires = await this.storageProvider.expirationDate(head);
+      // Since there's a good chance that we'll 404 here, which does throw
+      // an error, we should catch it
+      try {
+        cacheResource = await this.urlValidator(worldAddress);
+      } catch (err) {
+        outcome.status = 'absent';
+        return outcome;
+      }
 
-          let setTTL = expires - new Date();
-          setTTL /= 1000;
-          setTTL -= 30 * 60;
+      if (cacheResource.statusCode >= 200 && cacheResource.statusCode < 300) {
+        this.debug('found %s (%s) in storageProvider, backfilling cache', rawUrl, worldAddress);
 
-          this.debug(`backfilling cache for ${rawUrl}`);
-          await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
-          this.debug(`backfilled cache for ${rawUrl}`);
-          outcome.status = 'present';
-          this.monitor.count('backfill', 1);
-        } else {
-          outcome.status = 'absent';
-        }
+        let expires = await this.storageProvider.expirationDate(cacheResource.headers);
+
+        let setTTL = expires - new Date();
+        setTTL /= 1000;
+        setTTL -= 30 * 60;
+
+        await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
+        this.debug(`backfilled cache for ${rawUrl}`);
+        outcome.status = 'present';
+        this.monitor.count('backfill', 1);
       } else {
         outcome.status = 'absent';
       }
@@ -181,28 +201,20 @@ class CacheManager {
 
   async createUrlReadStream(rawUrl) {
     assert(rawUrl);
-    let urlInfo = await this.urlValidator(rawUrl);
+    let upstreamResource = await this.urlValidator(rawUrl);
 
-    if (!urlInfo) {
-      throw new Error('URL is invalid: ' + rawUrl);
-    }
-
-    let response = await request(urlInfo.url, {
+    let response = await request(upstreamResource.url, {
       headers: {
         'Accept-Encoding': '*',
       },
-    });
-
-    response.on('error', err => {
-      this.debug(`error reading input url stream ${err.stack || err}`);
-      throw err;
+      allowUnsafeUrls: !this.ensureSSL,
     });
 
     return {
       stream: response,
-      url: urlInfo.url,
-      meta: urlInfo.meta,
-      addresses: urlInfo.addresses,
+      url: upstreamResource.url,
+      headers: response.headers,
+      addresses: upstreamResource.addresses,
     };
   }
 
@@ -243,7 +255,6 @@ class CacheManager {
   async readCacheEntry(rawUrl) {
     assert(rawUrl);
     let key = this.cacheKey(rawUrl);
-    this.debug(`reading cache entry for ${rawUrl}`);
     let result = undefined;
     try {
       result = await this.redis.hgetallAsync(key);
@@ -257,7 +268,6 @@ class CacheManager {
     } else {
       this.monitor.count('redis.cache-miss', 1);
     }
-    this.debug(`read cache entry for ${rawUrl}`);
     return result;
   }
 

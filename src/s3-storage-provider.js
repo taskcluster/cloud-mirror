@@ -13,9 +13,17 @@ let _ = require('lodash');
  * wrapper.  Maybe we should consider adding this wrapper to the
  * aws-sdk class...
  */
-let wrapSend = (upload) => {
+let wrapSend = (upload, stream) => {
   return new Promise((res, rej) => {
     // TODO: Make this configurable?
+    stream.on('aborted', () => {
+      upload.abort();
+      console.log('upload aborted because of http/https aborted event');
+    });
+    stream.on('error', err => {
+      upload.abort();
+      console.log(err.stack || err);
+    });
     let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 60);
     debug('initiating upload');
     upload.send((err, data) => {
@@ -41,6 +49,7 @@ const HTTPHeaderToS3Prop = {
   'Content-Disposition': 'ContentDisposition',
   'Content-MD5': 'ContentMD5',
   'Content-Encoding': 'ContentEncoding',
+  'Content-Length': 'ContentLength',
 };
 
 /**
@@ -84,12 +93,14 @@ class S3StorageProvider extends StorageProvider {
     assert(headers, 'must provide HTTP headers');
     assert(storageMetadata, 'must provide storage provider metadata');
 
+    let passthrough = new stream.PassThrough();
+
     // We decode the key because the S3 library 'helpfully'
     // URL encodes this value
     let request = {
       Bucket: this.bucket,
       Key: rawUrl,
-      Body: inputStream,
+      Body: inputStream.pipe(passthrough),
       ACL: 'public-read',
       Metadata: storageMetadata,
     };
@@ -100,7 +111,9 @@ class S3StorageProvider extends StorageProvider {
       } else if (_.includes(MandatoryHTTPHeaders, httpHeader)) {
         assert(headers[httpHeader], `HTTP Header ${httpHeader} must be specified`);
       }
-      request[s3Prop] = headers[httpHeader];
+      if (headers[httpHeader]) {
+        request[s3Prop] = headers[httpHeader];
+      }
     });
 
     let options = {
@@ -111,7 +124,7 @@ class S3StorageProvider extends StorageProvider {
     let upload = this.s3.upload(request, options);
 
     this.debug('starting S3 upload');
-    let result = await wrapSend(upload);
+    let result = await wrapSend(upload, inputStream);
     this.debug('completed S3 upload');
     return result;
   }

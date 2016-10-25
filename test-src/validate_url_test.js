@@ -3,30 +3,48 @@ let assume = require('assume');
 
 describe('url following and validation', () => {
   it('should follow Urls and validate them', async () => {
-    let result = await subject('https://taskcluster-httpbin.herokuapp.com/redirect/6');
+    let result = await subject({
+      url: 'https://taskcluster-httpbin.herokuapp.com/redirect/6',
+      allowedPatterns: [/.*/],
+      ensureSSL: true,
+    });
     console.dir(result);
     assume(result.addresses.length).equals(7);
   });
 
+  // TODO: make sure that the caught errors have a message that's expected
+
   it('should complain about too many redirects', async () => {
-    let result = await subject('https://taskcluster-httpbin.herokuapp.com/redirect/32');
-    if (result !== false) {
-      throw new Error();
-    }
+    try {
+      let result = await subject({
+        url: 'https://taskcluster-httpbin.herokuapp.com/redirect/100',
+        allowedPatterns: [/.*/],
+        ensureSSL: true,
+      });
+      return Promse.reject(new Error());
+    } catch (err) { }
   });
 
   it('should complain about insecure urls', async () => {
-    let result = await subject('http://taskcluster-httpbin.herokuapp.com/redirect/32');
-    if (result !== false) {
-      throw new Error();
-    }
+    try {
+      let result = await subject({
+        url: 'http://taskcluster-httpbin.herokuapp.com/redirect/2',
+        allowedPatterns: [/.*/],
+        ensureSSL: true,
+      });
+      return Promse.reject(new Error());
+    } catch (err) { }
   });
 
   it('should complain about non-matching urls', async () => {
-    let result = await subject('http://taskcluster-httpbin.herokuapp.com/redirect/32', [/john/]);
-    if (result !== false) {
-      throw new Error();
-    }
+    try {
+      let result = await subject({
+        url: 'http://taskcluster-httpbin.herokuapp.com/redirect/2',
+        allowedPatterns: [/^noturl$/],
+        ensureSSL: true,
+      });
+      return Promse.reject(new Error());
+    } catch (err) { }
   });
 
 });
