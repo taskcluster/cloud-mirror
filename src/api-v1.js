@@ -106,20 +106,13 @@ api.declare({
             ensureSSL: this.ensureSSL,
           });
         } catch (err) {
-          if (err.code === 'InvalidUrl') {
-            return res.status(403).json({
-              msg: 'Invalid URL requested',
-            });
-          } else if (err.statusCode) {
+          if (err.code === 'BadHTTPStatus' || err.code === 'InvalidUrl') {
             return res.status(err.statusCode).json({
-              statusCode: err.statusCode,
               msg: err.message,
+              err: err.code,
             });
           } else {
-            debug('error while validating url: %s', err.stack || err);
-            return res.status(500).json({
-              msg: 'error while validating url',
-            });
+            throw err;
           }
         }
 
@@ -128,7 +121,6 @@ api.declare({
         // it not being there really is not an error case
         this.monitor.count(`${service}.${region}.cache-miss`, 1);
         this.monitor.count('cache-miss', 1);
-      } else {
       }
 
       if (result.status === 'present') {
