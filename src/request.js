@@ -6,13 +6,8 @@ let debug = require('debug')('requests');
 
 let versionString = '/unknownversion';
 
-// Figure out the version string that we'll include in the user agent.  If we
-// cannot figure out the version string, we'll (in the future) figure out what
-// git/hg revision we're on and use that.
-try {
-  let pkgInfo = require('../package.json');
-  versionString = '/' + pkgInfo.version;
-} catch (err) { }
+let pkgInfo = require('../package.json');
+versionString = '/' + pkgInfo.version;
 
 let httpAgent = new http.Agent({
   keepAlive: true,
@@ -52,8 +47,9 @@ async function request(url, opts = {}) {
   assert(typeof url === 'string', 'must provide a url');
   let urlParts = urllib.parse(url);
   if (!opts.allowUnsafeUrls) {
-    debug('allowing unsafe urls');
     assert(urlParts.protocol === 'https:', 'only https is supported');
+  } else {
+    debug('WARNING: allowing unsafe urls');
   }
 
   let headers = opts.headers || {};
