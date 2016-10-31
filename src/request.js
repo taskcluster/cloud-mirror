@@ -18,20 +18,29 @@ let httpsAgent = new https.Agent({
 });
 
 /**
- * Return true if these headers are ones that we'll support and false if they
- * aren't.  We only support headers where there is a single level deep mapping
- * of string to string values
+ * Returns a cleaned up version of the HTTP headers, after ensuring they
+ * are in the correct format.  Will throw an exception if there are collisions
+ * caused by case issues of header names
  */
-function validateHeaders(headers) {
+function correctHeaders(headers) {
   if (typeof headers !== 'object') {
     return false;
   }
+
+  let newHeaders = {};
+
   for (let key of Object.keys(headers)) {
     if (typeof headers[key] !== 'string') {
-      return false;
+      throw new RequestError('Header value for ' + key + ' must be string');
     }
+    if (newHeaders[key.toLowerCase()]) {
+      if (newHeaders[key.toLowerCase()] !== headers[key]) {
+        throw new RequestError('Header ' + key + ' collision caused by casing and not same value'); 
+      }
+    }
+    newHeaders[key.toLowerCase()] = headers[key];
   }
-  return true;
+  return newHeaders;
 }
 
 class RequestError extends Error {
@@ -64,10 +73,9 @@ async function request(url, opts = {}) {
   }
 
   // We want to validate all the headers
-  let headers = opts.headers || {};
-  if (!validateHeaders(headers)) {
-    throw new RequestError('Headers are invalid');
-  }
+  let headers = correctHeaders(opts.headers || {});
+  
+  // We want to make the User Agent string impossible to override
   headers['user-agent'] = 'cloud-mirror' + versionString;
 
   // We want to parse the port because urllib.parse will return 
@@ -126,6 +134,7 @@ async function request(url, opts = {}) {
 module.exports = {
   request,
   RequestError,
+  correctHeaders,
 };
 
 async function makeRequest(opts) {

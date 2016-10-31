@@ -9,6 +9,56 @@ let httpsBin = 'https://taskcluster-httpbin.herokuapp.com';
 // what is being sent
 //httpBin = 'http://localhost:1080';
 
+describe('correctHeaders', () => {
+  it('should parse headers correctly', () => {
+    let actual = subject.correctHeaders({
+      lower: 'lower',
+      UPPER: 'UPPER',
+      mixedCase: 'mixedCase',
+      'hypen-split': 'hyphen-split',
+      'Upper-Hypen-Split': 'Upper-Hyphen-Split',
+      under_score: 'under_score',
+    });
+    let expected = {
+      lower: 'lower',
+      upper: 'UPPER',
+      mixedcase: 'mixedCase',
+      'hypen-split': 'hyphen-split',
+      'upper-hypen-split': 'Upper-Hyphen-Split',
+      under_score: 'under_score',
+    }
+    assume(actual).deeply.equals(expected);
+  });
+
+  it('should throw on non-string values', done => {
+    try {
+      subject.correctHeaders({a: {b:1}});
+      done(new Error());
+    } catch (err) {
+      done();
+    }
+  });
+  
+  it('should throw on key collision with different values', done => {
+    try {
+      subject.correctHeaders({
+        lower: 'abcd',
+        LOWER: 'efgh',
+      });
+      done(new Error());
+    } catch (err) {
+      done();
+    }
+  });  
+
+  it('should not throw on key collision with same values', () => {
+    subject.correctHeaders({
+      lower: 'abcd',
+      LOWER: 'abcd',
+    });
+  });
+});
+
 describe('request', () => {
   it('should complete an HTTP GET request', async () => {
     let response = await subject.request(httpBin + '/user-agent', {
