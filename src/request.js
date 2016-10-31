@@ -45,79 +45,82 @@ class RequestError extends Error {
  */
 async function request(url, opts = {}) {
   assert(typeof url === 'string', 'must provide a url');
-  let urlParts = urllib.parse(url);
+
+  // We want the protocol, port and path of the URL.
+  let {protocol, hostname, port, path} = urllib.parse(url);
+
+  // Since we don't know how to interpret anything other than these protocols,
+  // we should error if something else is given
+  if (protocol !== 'https:' && protocol !== 'http:') {
+    throw new RequestError('Only HTTP and HTTPS urls are supported');
+  }
+
+  // We want to ensure that by default we only use HTTPS, and this is one of
+  // the ways we do this.
   if (!opts.allowUnsafeUrls) {
-    assert(urlParts.protocol === 'https:', 'only https is supported');
+    assert(protocol === 'https:', 'only https is supported');
   } else {
     debug('WARNING: allowing unsafe urls');
   }
 
+  // We want to validate all the headers
   let headers = opts.headers || {};
   if (!validateHeaders(headers)) {
     throw new RequestError('Headers are invalid');
   }
   headers['user-agent'] = 'cloud-mirror' + versionString;
 
-  let port;
-  try {
-    if (urlParts.port) {
-      port = parseInt(urlParts.port, 10);
+  // We want to parse the port because urllib.parse will return 
+  // its string base10 representation
+  if (port && typeof port === 'string') {
+    port = parseInt(port, 10);
+    if (Number.isNaN(port)) {
+      throw new RequestError('Provided port is not parsable');
     }
-  } catch (err) {
-    throw new RequestError('Cannot parse port'); 
   }
 
+  // Set default ports
+  if (!port && protocol === 'https:') {
+    port = 443;
+  } else if (!port && protocol === 'http:') {
+    port = 80;
+  }
+
+  // Let's save a headache and use upper case letters for the Method, always
   let method = opts.method || 'GET';
   method = method.toUpperCase();
 
+  // We want to make sure that the method used is one known to the HTTP
+  // library.  Since HTTPS is just HTTP running over TLS sockets, we use the
+  // same list of methods for https
   assert(http.METHODS.indexOf(method) !== -1);
   
+  // Handle input body streams
   if (opts.stream) {
     assert(typeof opts.contentType === 'string',
         'when supplying a request body, you must specify content-type');
     assert(!opts.data, 'if supplying a stream, you must not supply data');
   }
 
+  // Handle input body blobs
   if (opts.data) {
     assert(typeof opts.contentType === 'string',
         'when supplying a request body, you must specify content-type');
     assert(!opts.stream, 'if supplying a stream, you must not supply data');
   }
 
-  switch (urlParts.protocol) {
-    case 'https:':
-      return makeRequest({
-        httpLib: https,
-        hostname: urlParts.hostname,
-        port: port || 443,
-        path: urlParts.path || '/',
-        headers: headers,
-        method: method,
-        stream: opts.stream,
-        data: opts.data,
-        contentType: opts.contentType,
-        timeout: opts.timeout || 60000,
-      });
-      break;
-    case 'http:':
-      return makeRequest({
-        httpLib: http,
-        hostname: urlParts.hostname,
-        port: port || 80,
-        path: urlParts.path || '/',
-        headers: headers,
-        method: method,
-        stream: opts.stream,
-        data: opts.data,
-        contentType: opts.contentType,
-        timeout: opts.timeout || 60000,
-      });
-      break;
-    default:
-      throw new RequestError('Invalid protocol: ' + urlParts.protocol);
-      break;
-  }
-  
+  return makeRequest({
+    httpLib: protocol === 'https:' ? https : http,
+    hostname: hostname,
+    port: port,
+    path: path,
+    headers: headers,
+    method: method,
+    stream: opts.stream,
+    data: opts.data,
+    contentType: opts.contentType,
+    timeout: opts.timeout || 60000,
+  });
 }
 
 module.exports = {

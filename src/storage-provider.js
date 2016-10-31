@@ -43,7 +43,7 @@ class StorageProvider {
    *
    * and inserts the object into the storage provider
    */
-  async put(rawUrl, inputStream, headers, storageMetadata, rawInputStream) {
+  async put(rawUrl, inputStream, headers, storageMetadata) {
     throw new Error('This StorageProvider implementation must implement .put()');
   }
 
