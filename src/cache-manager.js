@@ -108,11 +108,11 @@ class CacheManager {
       }
 
       let storageMetadata = {
-        'upstream-etag': inputUrlInfo.headers['etag'] || '<unknown>',
-        'upstream-content-length': contentLength || '<unknown>',
-        'upstream-url': rawUrl,
-        stored: new Date().toISOString(),
-        addresses: JSON.stringify(inputUrlInfo.addresses),
+        'cloud-mirror-upstream-etag': inputUrlInfo.headers['etag'] || '<unknown>',
+        'cloud-mirror-upstream-content-length': contentLength || '<unknown>',
+        'cloud-mirror-upstream-url': rawUrl,
+        'cloud-mirror-stored': new Date().toISOString(),
+        'cloud-mirror-addresses': JSON.stringify(inputUrlInfo.addresses),
       };
 
       let start = process.hrtime();

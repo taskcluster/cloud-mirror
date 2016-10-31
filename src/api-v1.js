@@ -111,8 +111,6 @@ api.declare({
               msg: err.message,
               err: err.code,
             });
-          } else {
-            throw err;
           }
         }
 
