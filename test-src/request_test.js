@@ -26,7 +26,7 @@ describe('correctHeaders', () => {
       'hypen-split': 'hyphen-split',
       'upper-hypen-split': 'Upper-Hyphen-Split',
       under_score: 'under_score',
-    }
+    };
     assume(actual).deeply.equals(expected);
   });
 

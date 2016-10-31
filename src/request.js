@@ -162,11 +162,8 @@ async function makeRequest(opts) {
       port: opts.port,
       path: opts.path,
       method: opts.method,
+      timeout: opts.timeout,
     });
-
-    // We don't want connections hanging around forever, so we'll set a fatal
-    // condition that they timeout if they aren't responded to quickly enough
-    request.setTimeout(opts.timeout);
 
     request.on('error', err => {
       reject(err);
