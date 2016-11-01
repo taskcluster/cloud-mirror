@@ -1,3 +1,4 @@
 user-config.yml
 stack.yml
 node_modules
+cert*

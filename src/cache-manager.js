@@ -117,6 +117,14 @@ class CacheManager {
 
       let start = process.hrtime();
 
+      inputStream.on('aborted', () => {
+        inputStream.emit('error', new Error('Request aborted'));
+      });
+      inputStream.on('timeout', () => {
+        inputStream.abort();
+      });
+      inputStream.setTimeout(1000 * 60 * 60);
+
       await this.storageProvider.put(rawUrl, inputStream, headers, storageMetadata);
 
       let d = process.hrtime(start);

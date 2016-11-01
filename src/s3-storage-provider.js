@@ -15,17 +15,20 @@ let _ = require('lodash');
  */
 let wrapSend = (upload, stream) => {
   return new Promise((res, rej) => {
-    // TODO: Make this configurable?
-    stream.on('aborted', () => {
-      upload.abort();
-      console.log('upload aborted because of http/https aborted event');
-    });
+    // We want to handle stream errors and abort the upload when they occur.
+    // Note that it's important that the 'aborted' event is handled.  In this
+    // case, however, we're emitting an error event from an aborted event
+    // listener that's added in the cache-manager before the stream is passed
+    // into the storage provider
     stream.on('error', err => {
       upload.abort();
       console.log(err.stack || err);
     });
+
     let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 60);
+
     debug('initiating upload');
+
     upload.send((err, data) => {
       clearTimeout(abortTimer);
       if (err) {

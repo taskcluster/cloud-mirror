@@ -163,35 +163,25 @@ async function makeRequest(opts) {
       path: opts.path,
       method: opts.method,
       timeout: opts.timeout,
+      headers: opts.headers,
     });
 
-    request.on('error', err => {
-      reject(err);
-    });
+    request.on('error', reject);
 
     request.on('socket', socket => {
       debug('have a socket');
 
-      socket.on('error', err => {
-        debug('socket error');
-        reject(err);
-      });
+      socket.on('error', reject);
 
       socket.on('close', had_error => {
-        reject(new RequestError('Socket closed with error'));
+        if (had_error) {
+          reject(new RequestError('Socket closed with error'));
+        }
       });
 
     });
 
-    request.on('response', response => {
-      if (!response.statusCode) {
-        reject(new RequestError('Request has invalid status code'));
-      }
-      response.socket.on('error', err => {
-        debug('response socket error: ' + err.stack || err);
-      });
-      resolve(response);
-    });
+    request.on('response', resolve);
 
     request.on('abort', () => {
       reject(new RequestError('Request aborted by client (us)'));
@@ -203,15 +193,8 @@ async function makeRequest(opts) {
 
     request.on('timeout', () => {
       request.abort();
-      reject(new RequestError('Request timeout occured'));
     });
     
-    // Set all headers which are specified in the request
-    for (let key of Object.keys(opts.headers)) {
-      request.setHeader(key, opts.headers[key]);
-      debug(`set header ${key} to value ${opts.headers[key]}`);
-    }
-
     // If we have an input stream for the request, we should specify
     // that here.  
     if (opts.stream) {
