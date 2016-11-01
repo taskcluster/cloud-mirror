@@ -218,6 +218,8 @@ class CacheManager {
 
     if (status === 'error') {
       cacheEntry.stack = stack;
+    } else {
+      cacheEntry.stack = 'NO STACK';
     }
 
     let key = this.cacheKey(rawUrl);
