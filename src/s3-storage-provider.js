@@ -5,6 +5,12 @@ let debug = require('debug')('cloud-mirror:s3-storage-provider');
 let stream = require('stream');
 let cookie = require('cookie');
 let _ = require('lodash');
+let fnv = require('fnv1a')
+
+// Compute key returns hash of url + url
+let computeKey = (rawUrl) => {
+  return fnv(rawUrl).toString(16) + rawUrl;
+};
 
 /**
  * We use this to wrap the upload object returned by s3.upload so that we get a
@@ -102,7 +108,7 @@ class S3StorageProvider extends StorageProvider {
     // URL encodes this value
     let request = {
       Bucket: this.bucket,
-      Key: rawUrl,
+      Key: computeKey(rawUrl),
       Body: inputStream.pipe(passthrough),
       ACL: 'public-read',
       Metadata: storageMetadata,
@@ -161,7 +167,7 @@ class S3StorageProvider extends StorageProvider {
     return url.format({
       protocol: 'https:',
       host: host,
-      pathname: encodeURIComponent(rawUrl),
+      pathname: encodeURIComponent(computeKey(rawUrl)),
     });
   }
 
