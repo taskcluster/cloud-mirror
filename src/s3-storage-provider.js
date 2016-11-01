@@ -145,29 +145,6 @@ class S3StorageProvider extends StorageProvider {
   }
 
   /**
-   * Retreive the expiration time of object in S3
-   *
-   * This is stored in the format:
-   * expiry-date="Fri, 15 Jan 2016 00:00:00 GMT", rule-id="eu-central-1-1-day"
-   */
-  async expirationDate(response) {
-    let header = response.headers['x-amz-expiration'];
-    if (!header) {
-      throw new Error('Missing x-amz-expiration');
-    }
-    // This header is sent in such a silly format.  Using cookie format or
-    // sending the value without packing it in with a second value (rule-id)
-    // would be way nicer.
-    // The requirements for this to stop being valid are so obscure that I
-    // would wager that the whole format of the header changes and this entire
-    // function would need to be rewritten as oppsed to the string replacement
-    // You'd need to have inside the expiry-date value or key an escaped quote
-    // that's followed by a comma...
-    header = cookie.parse(header.replace('",', '";'));
-    return new Date(header['expiry-date']);
-  }
-
-  /**
    * Create an S3 URL for an object stored in this S3 storage provider
    */
   worldAddress(rawUrl) {

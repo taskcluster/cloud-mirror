@@ -155,35 +155,7 @@ class CacheManager {
     };
 
     if (!cacheEntry) {
-      this.debug('cache entry not found for %s (%s)', rawUrl, worldAddress);
-
-      let cacheResource;
-
-      // Since there's a good chance that we'll 404 here, which does throw
-      // an error, we should catch it
-      try {
-        cacheResource = await this.urlValidator(worldAddress);
-      } catch (err) {
-        outcome.status = 'absent';
-        return outcome;
-      }
-
-      if (cacheResource.statusCode >= 200 && cacheResource.statusCode < 300) {
-        this.debug('found %s (%s) in storageProvider, backfilling cache', rawUrl, worldAddress);
-
-        let expires = await this.storageProvider.expirationDate(cacheResource.headers);
-
-        let setTTL = expires - new Date();
-        setTTL /= 1000;
-        setTTL -= 30 * 60;
-
-        await this.insertCacheEntry(rawUrl, 'present', Math.floor(setTTL));
-        this.debug(`backfilled cache for ${rawUrl}`);
-        outcome.status = 'present';
-        this.monitor.count('backfill', 1);
-      } else {
-        outcome.status = 'absent';
-      }
+      outcome.status = 'absent';
     } else if (cacheEntry.status === 'present') {
       outcome.status = 'present';
     } else if (cacheEntry.status === 'pending') {

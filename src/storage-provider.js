@@ -55,15 +55,6 @@ class StorageProvider {
   }
 
   /**
-   * Take the request-promise response from an HTTP HEAD request for an object
-   * in this storage provider and return a Date object which represents when
-   * this object will be cleaned up from the cache
-   */
-  async expirationDate(response) {
-    throw new Error('This StorageProvider implementation must implement .expirationDate()');
-  }
-
-  /**
    * A world address is what we will eventually redirect to.  This method
    * should map an internal address to a world address
    */

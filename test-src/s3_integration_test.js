@@ -335,20 +335,6 @@ describe('Integration Tests', () => {
     assume(actual.headers['location']).equals(testUrl);
   });
 
-  it('should parse the s3 expiration header correctly', async () => {
-    let testUrl = httpbin + '/ip';
-    let urlEncodedTestUrl = encodeURIComponent(testUrl);
-    let actual = await request({
-      url: baseUrl + '/redirect/s3/us-west-1/' + urlEncodedTestUrl,
-      followRedirect: true,
-      resolveWithFullResponse: true,
-    });
-
-    let parsedDate = await cacheManager.storageProvider.expirationDate(actual);
-    let reparsedDate = new Date(parsedDate.toISOString());
-    assume(parsedDate).deeply.equals(reparsedDate);
-  });
-
   it('should purge correctly', async () => {
     let testUrl = httpbin + '/bytes/1024';
     let expectedRedirect = baseUrl + '/redirect/s3/us-west-1/';
