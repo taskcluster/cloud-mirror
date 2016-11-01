@@ -85,6 +85,7 @@ production:
     publicUrl: https://cloud-mirror.taskcluster.net
     env: production
     forceSSL: true
+    ensureSSL: true
     trustProxy: true
 
 development:
