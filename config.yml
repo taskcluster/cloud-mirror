@@ -33,20 +33,11 @@ defaults:
     s3:
       regions: 'us-west-1,us-east-1,eu-central-1'
       acl: 'public-read'
-      bucketBase: 'cloud-mirror-'
+      bucketBase: 'cloud-mirror-' # bucketName = bucketBase + profile + '-' + region
       lifespan: 1 # in days, how long should S3 keep this
       partSize: 33554432 # 32mb
       queueSize: 4
     cacheTTL: 84600 # 23.5 hours
-
-  pulse:
-    username: !env PULSE_USERNAME
-    password: !env PULSE_PASSWORD
-
-  influx:
-    connectionString: !env INFLUX_CONNECTION
-    maxDelay: 300
-    maxPendingPoints: 300
 
   redis:
     host: !env REDIS_HOST
@@ -109,6 +100,8 @@ test:
     queueName: cloud-mirror-test
   backend:
     count: 10
+    s3:
+      regions: 'us-west-1'
   app:
     ensureSSL: true
     maxWaitForCachedCopy: 5000 #ms
