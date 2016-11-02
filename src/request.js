@@ -168,19 +168,6 @@ async function makeRequest(opts) {
 
     request.on('error', reject);
 
-    request.on('socket', socket => {
-      debug('have a socket');
-
-      socket.on('error', reject);
-
-      socket.on('close', had_error => {
-        if (had_error) {
-          reject(new RequestError('Socket closed with error'));
-        }
-      });
-
-    });
-
     request.on('response', resolve);
 
     request.on('abort', () => {
