@@ -120,6 +120,9 @@ class CacheManager {
       inputStream.on('aborted', () => {
         inputStream.emit('error', new Error('Request aborted'));
       });
+      inputStream.on('abort', () => {
+        inputStream.emit('error', new Error('Request aborted by timeout'));
+      });
       inputStream.on('timeout', () => {
         inputStream.abort();
       });
