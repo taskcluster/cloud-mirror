@@ -48,7 +48,8 @@
     "taskcluster-lib-monitor": "^4.2.0",
     "taskcluster-lib-validate": "^2.0.0",
     "typed-env-config": "^1.1.0",
-    "uuid": "^2.0.1"
+    "uuid": "^2.0.1",
+    "memory-streams": "^0.1.0"
   },
   "repository": {
     "type": "git",
