@@ -85,6 +85,12 @@ make our async promises easier to work with.  This is strongly preferred in
 contributions.  We also like to use `lodash` where javascript standards haven't
 provided the needed utilities.
 
+Running tests locally, requires a redis instance:
+```sh
+# This should do the trick
+docker run --rm -p 6379:6379 redis
+```
+
 # taskcluster.net deployment notes
 
 While this tool is designed to be general purpose, the taskcluster deployment
@@ -102,4 +108,4 @@ redirect configuration values to a private values file.
 
 # Troubleshooting and Deploying
 
-Building a new version of the docker image for cloud-mirror should be 
+Building a new version of the docker image for cloud-mirror should be
