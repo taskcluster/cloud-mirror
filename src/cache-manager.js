@@ -72,12 +72,6 @@ class CacheManager {
         bytes += chunk.length;
       });
 
-      inputStream.on('error', async err => {
-        console.error(err.stack || err);
-        await this.storageProvider.purge(rawUrl);
-        await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
-      });
-
       let headers = {};
 
       // We need the following pieces of information in the service-specific
