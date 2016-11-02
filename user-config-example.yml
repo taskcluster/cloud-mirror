@@ -1,4 +1,7 @@
-development:
+test:
+  # Or set environment variables:
+  # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  # Needs access to SQS for cloud-mirror-test* and S3 for cloud-mirror-test-us-west-1
   sqs:
     accessKeyId: ...
     secretAccessKey: ...
