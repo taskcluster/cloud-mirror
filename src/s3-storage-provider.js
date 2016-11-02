@@ -21,6 +21,7 @@ let wrapSend = (upload, stream) => {
     // listener that's added in the cache-manager before the stream is passed
     // into the storage provider
     stream.on('error', err => {
+      rej(err);
       upload.abort();
       console.log(err.stack || err);
     });
