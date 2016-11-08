@@ -40,9 +40,7 @@ defaults:
     cacheTTL: 84600 # 23.5 hours
 
   redis:
-    host: !env REDIS_HOST
-    port: !env REDIS_PORT
-    password: !env REDIS_PASS
+    url: !env REDIS
 
   sqs:
     accessKeyId: !env AWS_ACCESS_KEY_ID
