@@ -22,6 +22,29 @@ module.exports = api;
 
 api.declare({
   method: 'get',
+  route: '/artifact/:region/:bucket/:key',
+  name: 'artifact',
+  title: 'Get an artifact',
+  description: 'get an artifact',
+}, async function (req, res) {
+  let {region, bucket, key} = req.params;
+
+  res.json({wip: true});
+});
+
+api.declare({
+  method: 'delete',
+  route: '/artifact/:region/:bucket/:key',
+  name: 'purgeArtifact',
+  title: 'Get an artifact',
+  description: 'get an artifact',
+}, async function (req, res) {
+  let {region, bucket, key} = req.params;
+
+  res.json({wip: true});
+});
+api.declare({
+  method: 'get',
   // Note that the Error parameter is only here to check for improperly
   // URL-Encoded URLs.  This would likely cause errors if this API were
   // included in the taskcluster-client* packages.  Maybe we should have a
