@@ -1,7 +1,7 @@
 let StorageProvider = require('./storage-provider.js').StorageProvider;
 let url = require('url');
 let assert = require('assert');
-let debug = require('debug')('cloud-mirror:s3-storage-provider');
+let log = require('./log');
 let stream = require('stream');
 let cookie = require('cookie');
 let _ = require('lodash');
@@ -28,16 +28,13 @@ let wrapSend = (upload, stream) => {
 
     let abortTimer = setTimeout(upload.abort.bind(upload), 1000 * 60 * 60);
 
-    debug('initiating upload');
-
     upload.send((err, data) => {
       clearTimeout(abortTimer);
       if (err) {
-        debug('upload error');
-        debug(err.stack || err);
+        log.error(err, 'upload error');
         rej(err);
       } else {
-        debug('upload completed');
+        log.debug('upload complete');
         res(data);
       }
     });
@@ -127,9 +124,8 @@ class S3StorageProvider extends StorageProvider {
 
     let upload = this.s3.upload(request, options);
 
-    this.debug('starting S3 upload');
     let result = await wrapSend(upload, inputStream);
-    this.debug('completed S3 upload');
+    log.info(request, 'upload complete');
     return result;
   }
 
@@ -137,12 +133,11 @@ class S3StorageProvider extends StorageProvider {
    * StorageProvider.purge() implementation for S3
    */
   async purge(rawUrl) {
-    this.debug(`purging ${rawUrl} from ${this.bucket}`);
     await this.s3.deleteObject({
       Bucket: this.bucket,
       Key: rawUrl,
     }).promise();
-    this.debug(`purged ${rawUrl} from ${this.bucket}`);
+    log.info({key: rawUrl, bucket: this.bucket}, 'purged');
   }
 
   /**
@@ -232,9 +227,8 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
   }
 
   try {
-    debug(`Creating S3 Bucket ${name} in ${region}`);
     await s3.createBucket(params).promise();
-    debug(`Created S3 Bucket ${name} in ${region}`);
+    log.info({bucket: name, region}, 'bucket created');
   } catch (err) {
     switch (err.code) {
       case 'BucketAlreadyExists':
@@ -264,9 +258,8 @@ async function createS3Bucket(s3, name, region, acl, lifecycleDays = 1) {
     },
   };
 
-  debug(`Setting S3 lifecycle configuration for ${name} in ${region}`);
   await s3.putBucketLifecycleConfiguration(params).promise();
-  debug(`Set S3 lifecycle configuration for ${name} in ${region}`);
+  log.info({bucket: name, region}, 'set lifecycle');
 }
 
 module.exports = {

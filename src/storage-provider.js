@@ -1,4 +1,4 @@
-let debugModule = require('debug');
+let log = require('./log');
 let assert = require('assert');
 
 /**
@@ -28,7 +28,7 @@ class StorageProvider {
       throw new Error('Service and region must not contain underscores');
     }
     this.id = this.service.toLowerCase() + '_' + this.region.toLowerCase();
-    this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+    this.log = log.child({constructor: this.constructor.name, id: this.id});
     this.monitor = config.monitor;
   }
 

@@ -1,4 +1,4 @@
-let debug = require('debug')('cloud-mirror:api-v1');
+let log = require('./log');
 let API = require('taskcluster-lib-api');
 let taskcluster = require('taskcluster-client');
 let _ = require('lodash');
@@ -63,7 +63,7 @@ api.declare({
     );
   }
 
-  let logthingy = `${url} in ${service}/${region}`;
+  let reqLog = log.child({service, region, url});
 
   // This is the ID that we need to find a backend for
   let incomingId = `${service}_${region}`;
@@ -73,11 +73,11 @@ api.declare({
   let backends = this.cacheManagers.filter(x => x.id === incomingId);
 
   if (backends.length > 1) {
-    debug('[alert-operator] API server misconfigured, has more than one cachemanager with id, crashing' + incomingId);
+    regLog.error({incomingId}, 'too many backends with this id');
     // Because this should never ever happen
     process.exit(-1);
   } else if (backends.length === 0) {
-    debug(`${incomingId} is not known`);
+    reqLog.info({incomingId}, 'unknown backend requested');
     return res.reportError(
         'ResourceNotFound',
         'service or region not found',
@@ -122,7 +122,6 @@ api.declare({
       }
 
       if (result.status === 'present') {
-        debug(`${logthingy} is present`);
 
         let d = process.hrtime(start);
 
@@ -130,6 +129,7 @@ api.declare({
         this.monitor.measure(`${service}.${region}.cache-hit.duration-ms`, duration);
         this.monitor.count(`${service}.${region}.cache-hit`, 1);
         this.monitor.count('cache-hit', 1);
+        reqLog.info({from: url, to: result.url}, 'found url, redirecting');
         return res.status(302).location(result.url).json({
           status: result.status,
           url: result.url,
@@ -137,22 +137,24 @@ api.declare({
       } else if (result.status === 'pending') {
         // Do nothing for pending operations
       } else if (result.status === 'absent') {
-        debug(`${logthingy} is absent, requesting`);
+        reqLog.info('absent, requesting copy');
         backend.requestPut(url);
       } else if (result.status === 'error') {
-        debug(`${logthingy} had error, retrying request.  Backend stack: ${result.stack}`);
         backend.requestPut(url);
+        reqLog.error({stack: result.stack}, 'error copying, requesting copy');
         this.monitor.reportError(result.stack);
         this.monitor.count(`${service}.${region}.cache-error`, 1);
       } else {
-        debug(`[alert-opereator] ${logthingy} invalid status: ${result.status}`);
+        reqLog.error({status: result.status}, 'invalid status');
       }
       await delayer(1000);
     } while (new Date() - startTime < maxWait);
 
     // If we get here, we're doing the fallback of redirecting
     // to the original URL because the caching took too long
-    debug(`[alert-operator] Redirecting to uncached copy because it took too long ${url}`);
+    
+    reqLog({attemptedUrl: result.url, to: url}, 'time limit exceeded, redirecting to uncached copy');
+    log.error(`Redirecting to uncached copy because it took too long ${url}`);
 
     this.monitor.count(`${service}.${region}.redirect-original`, 1);
 
@@ -202,8 +204,7 @@ api.declare({
     );
   }
 
-  let logthingy = `${url} in ${service}/${region}`;
-  debug(`Attempting to purge ${logthingy}`);
+  let reqLog = log.child({service, region, url});
   // This is the ID that we need to find a backend for
   let incomingId = `${service}_${region}`;
   
@@ -211,9 +212,10 @@ api.declare({
   // only backend known that matches the potential id
   let backends = this.cacheManagers.filter(x => x.id === incomingId);
   if (backends.length > 1) {
+    regLog.error({incomingId}, 'too many backends with this id');
     throw new Error('API server is misconfigured and has more than one cachemanager with id, crashing' + incomingId);
   } else if (backends.length === 0) {
-    debug(`${incomingId} is not known`);
+    reqLog.info({incomingId}, 'unknown backend requested');
     return res.reportError(
         'ResourceNotFound',
         'service or region not found',
@@ -223,6 +225,7 @@ api.declare({
 
   let backend = backends[0];
   await backend.purge(url);
+  reqLog.info('purged');
   this.monitor.count(`${service}.${region}.purge-resource`, 1);
   return res.status(204).send();
 });

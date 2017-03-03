@@ -14,8 +14,6 @@ let sinon = require('sinon');
 let uuid = require('uuid');
 let zlib = require('zlib');
 
-let debug = require('debug')('s3-integration-tests');
-
 let httpbin = 'https://taskcluster-httpbin.herokuapp.com';
 
 let cm = require('../lib/cache-manager');
@@ -23,8 +21,6 @@ let sp = require('../lib/storage-provider');
 let s3sp = require('../lib/s3-storage-provider');
 
 async function emptyBucket(awsCfg, bucket) {
-  debug('emptying test bucket');
-
   let aws = new _aws.S3(_.omit(awsCfg, 'region'));
 
   let x;
@@ -39,7 +35,6 @@ async function emptyBucket(awsCfg, bucket) {
     x = false;
   }
   if (!x) {
-    debug('bucket absent, nothing to delete');
     return;
   }
 
@@ -59,7 +54,6 @@ async function emptyBucket(awsCfg, bucket) {
   };
 
   await aws.deleteObjects(objs).promise();
-  debug('finished emptying test bucket');
 }
 
 describe('Integration Tests', () => {

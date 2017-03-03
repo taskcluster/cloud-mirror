@@ -1,4 +1,4 @@
-let debug = require('debug')('cloud-mirror:cache-manager');
+let log = require('./log');
 let urllib = require('url');
 let http = require('http');
 let requestPromise = require('request-promise').defaults({
@@ -8,7 +8,6 @@ let requestPromise = require('request-promise').defaults({
 });
 let request = require('./request').request;
 let fs = require('fs');
-let debugModule = require('debug');
 let validateUrl = require('./validate-url');
 let _ = require('lodash');
 let assert = require('assert');
@@ -37,7 +36,7 @@ class CacheManager {
 
     // We'll use the same ID here as we have set in the storage provider
     this.id = this.storageProvider.id;
-    this.debug = debugModule(`cloud-mirror:${this.constructor.name}:${this.id}`);
+    this.log = log.child({constructor: this.constructor.name, id: this.id});
     
     this.monitor = config.monitor.prefix(this.id);
 
@@ -52,7 +51,6 @@ class CacheManager {
 
   async put(rawUrl) {
     assert(rawUrl);
-    this.debug(`putting ${rawUrl}`);
 
     // Tell others that we're working on this url
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
@@ -60,9 +58,7 @@ class CacheManager {
     // Basically, any error here should do the same thing: pring the exception
     // in our logs then set the cache entry to status === 'error'
     try {
-      this.debug(`creating read stream for ${rawUrl}`);
       let inputUrlInfo = await this.createUrlReadStream(rawUrl);
-      this.debug(`created read stream for ${rawUrl}`);
 
       let bytes = 0;
 
@@ -132,12 +128,16 @@ class CacheManager {
       let speed = bytes / duration / 1.024;
       this.monitor.measure('copy-speed-kbps', speed);
 
-      this.debug(`uploaded ${rawUrl} ${bytes} bytes in ${duration/1000} seconds`);
+      this.log.info({
+        rawUrl,
+        bytes,
+        duration,
+      }, 'completed upload');
 
       await this.insertCacheEntry(rawUrl, 'present', this.cacheTTL);
 
     } catch (err) {
-      this.debug(`error putting ${rawUrl}: ${err.stack || err}`);
+      this.error({rawUrl, err}, `error putting ${rawUrl}`);
       await this.insertCacheEntry(rawUrl, 'error', this.cacheTTL, err.stack || err);
     }
   }
@@ -168,12 +168,9 @@ class CacheManager {
 
   async purge(rawUrl) {
     assert(rawUrl);
-    this.debug(`removing ${rawUrl} from storageProvider`);
     await this.storageProvider.purge(rawUrl);
-    this.debug(`removed ${rawUrl} from storageProvider`);
-    this.debug(`removing cache entry for ${rawUrl}`);
     await this.redis.delAsync(this.cacheKey(rawUrl));
-    this.debug(`removed cache entry for ${rawUrl}`);
+    log.info({rawUrl}, 'purged');
   }
 
   async createUrlReadStream(rawUrl) {
@@ -252,7 +249,6 @@ class CacheManager {
 
   async requestPut(rawUrl) {
     assert(rawUrl);
-    this.debug(`sending put request for ${rawUrl}`);
     await this.insertCacheEntry(rawUrl, 'pending', this.cacheTTL);
     // ID is the identifier for a storage pool.  This is a combination of the
     // service and the subdivison of that service
@@ -261,7 +257,7 @@ class CacheManager {
       url: rawUrl,
       action: 'put',
     });
-    this.debug(`sent put request for ${rawUrl}`);
+    this.log.info({rawUrl}, 'requested copy');
   }
 }
 

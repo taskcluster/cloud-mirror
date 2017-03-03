@@ -4,8 +4,7 @@ if (process.versions.node.split('.')[0] < 5) {
 }
 require('source-map-support').install();
 
-let debugModule = require('debug');
-let debug = debugModule('cloud-proxy:main');
+let log = require('./log');
 let base = {
   app: require('taskcluster-lib-app'),
   validator: require('taskcluster-lib-validate'),
@@ -68,7 +67,7 @@ let load = base.loader({
     requires: ['cfg'],
     setup: ({cfg}) => {
       assert(cfg.redis, 'Must specify redis server');
-      debug('Redis config: %j', cfg.redis);
+      log.info(cfg.redis, 'redis config');
       return redis.createClient(cfg.redis);
     },
   },
@@ -78,11 +77,11 @@ let load = base.loader({
     setup: ({cfg, monitor}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
       let sqsCfg = cfg.sqs;
-      let sqsDebugger = debugModule('cloud-mirror:aws-sqs');
+      let sqsDebugger = log.child({service: sqs});
       let awsDebugLoggerBridge = {
         write: x => {
           for (let y of x.split('\n')) {
-            sqsDebugger(y);
+            sqsDebugger.trace(y);
           }
         },
       };
@@ -156,7 +155,7 @@ let load = base.loader({
     setup: async ({cfg, sqs}) => {
       let sqsConfig = cfg.sqsSimple;
       sqsConfig.sqs = sqs;
-      debug(sqsConfig);
+      log.debug(sqsConfig, 'sqs config');
       return sqsSimple.initQueue(sqsConfig);
     },
   },
@@ -193,19 +192,19 @@ let load = base.loader({
     setup: async ({cfg, sqs, queueUrl, cacheManagers, profile, monitor}) => {
       return async function() {
         let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
+        let handlerLog = log.child({queueUrl});
 
         listenerOpts.queueUrl = queueUrl;
         listenerOpts.sqs = sqs;
 
         listenerOpts.handler = async (msg, changeTimeout) => {
-          debug('received message!');
           assert(typeof msg.id === 'string', 'id must be string');
           assert(typeof msg.url === 'string', 'url must be string');
-          debug('this message checks out');
 
           let selectedCacheManagers = cacheManagers.filter(x => x.id === msg.id);
 
           await Promise.all(selectedCacheManagers.map(x => x.put(msg.url)));
+          handlerLog.debug('handled message');
         };
         
         let listener = new sqsSimple.QueueListener(listenerOpts);
@@ -213,7 +212,7 @@ let load = base.loader({
         listener.on('error', (err, errType) => {
           let level = errType === 'payload' ? 'debug' : 'warning';
           monitor.reportError(err, level, {type: errType});
-          debug('%s %s', err.stack || err, errType);
+          handlerLog({err, errType}, 'handler error');
           if (errType === 'api') {
             console.log('Encountered an API error, exiting');
             process.exit(1);
@@ -229,6 +228,7 @@ let load = base.loader({
     requires: ['cfg', 'sqs', 'deadQueueUrl', 'monitor'],
     setup: async ({cfg, sqs, deadQueueUrl, monitor}) => {
       let listenerOpts = _.pick(cfg.sqsSimple, ['maxReceiveCount', 'visibilityTimeout', 'deadLetterSuffix']);
+      let handlerLog = log.child({queueUrl});
 
       listenerOpts.queueUrl = deadQueueUrl;
       listenerOpts.sqs = sqs;
@@ -238,6 +238,7 @@ let load = base.loader({
         let err = new Error('dead-letter');
         err.originalMessage = msg;
         monitor.reportError(err, 'info');
+        handlerLog.debug('handled dead letter message');
       };
 
       let listener = new sqsSimple.QueueListener(listenerOpts);
@@ -245,7 +246,7 @@ let load = base.loader({
       listener.on('error', (err, errType) => {
         let level = errType === 'payload' ? 'debug' : 'warning';
         monitor.reportError(err, level, {type: errType});
-        debug('%s %s', err.stack || err, errType);
+        handlerLog({err, errType}, 'handler error');
       });
 
       return listener;
@@ -283,12 +284,12 @@ let load = base.loader({
 
         awsCfg.region = region;
 
-        let s3Debugger = debugModule('cloud-mirror:aws-s3:' + region);
+        let s3Debugger = log.child({service: s3, region});
 
         let awsDebugLoggerBridge = {
           write: x => {
             for (let y of x.split('\n')) {
-              s3Debugger(y);
+              s3Debugger.trace(y);
             }
           },
         };

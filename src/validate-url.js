@@ -1,5 +1,5 @@
 let request = require('./request').request;
-let debug = require('debug')('cloud-mirror:follow-redirects');
+let log = require('./log');
 let assert = require('assert');
 let url = require('url');
 
@@ -75,7 +75,10 @@ async function followRedirect(opts) {
     });
 
     if (code >= 200 && code < 300 || code === 304) {
-      debug('found a good resource, returning');
+      log.debug({
+        url: u,
+        addresses,
+      }, 'finished redirect');
       return {
         url: u,
         statusCode: code,
@@ -83,7 +86,6 @@ async function followRedirect(opts) {
         addresses: addresses,
       };
     } else if (code >= 300 && code < 400 && code !== 305) {
-      debug('found a redirect, redirecting');
       let locHead = result.headers.location;
       if (!locHead) {
         let err = new Error('Redirect missing location header');
@@ -93,9 +95,16 @@ async function followRedirect(opts) {
         err.statusCode = 500;
         throw err;
       }
+      log.debug({
+        from: u,
+        to: locHead,
+      }, 'found a redirect');
       u = url.resolve(u, locHead);
     } else {
-      debug('found bad status code: ' + code);
+      log.warn({
+        statusCode: code,
+        url: u,
+      }, 'bad status code for redirect');
       let err = new Error('Unexpected HTTP Status: ' + code);
       err.statusCode = code;
       err.headers = result.headers;

@@ -2,7 +2,7 @@ let http = require('http');
 let https = require('https');
 let assert = require('assert');
 let urllib = require('url');
-let debug = require('debug')('requests');
+let log = require('./log');
 
 let versionString = '/unknownversion';
 
@@ -68,8 +68,6 @@ async function request(url, opts = {}) {
   // the ways we do this.
   if (!opts.allowUnsafeUrls) {
     assert(protocol === 'https:', 'only https is supported');
-  } else {
-    debug('WARNING: allowing unsafe urls');
   }
 
   // We want to validate all the headers
@@ -186,22 +184,20 @@ async function makeRequest(opts) {
     // that here.  
     if (opts.stream) {
       request.setHeader('content-type', opts.contentType);
-      debug('piping input stream to request');
+
       opts.stream.pipe(request);
 
       opts.stream.on('end', () => {
-        debug('input stream completed, ending request');
         request.end();
       });
 
       opts.stream.on('error', err => {
-        debug('error on input stream, aborting request');
         request.abort();
+        reject(err);
       });
     } else if (opts.data) {
       request.setHeader('content-type', opts.contentType);
       request.setHeader('content-length', opts.data.length);
-      debug('writing: ' + opts.data);
       request.write(opts.data);
       request.end();
     } else {
