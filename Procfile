@@ -1,2 +1,3 @@
-web: NODE_ENV=production node lib/main.js server
-qmon: NODE_ENV=production node lib/main.js queueMonitor
+web: node lib/main.js server
+qmon: node lib/main.js queueMonitor
+copier: node lib/main.js backend
