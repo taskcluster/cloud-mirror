@@ -31,7 +31,7 @@ defaults:
   backend:
     count: 100
     s3:
-      regions: 'us-west-1,us-east-1,eu-central-1'
+      regions: 'us-west-1,us-east-1,eu-central-1,us-west-2'
       acl: 'public-read'
       bucketBase: 'cloud-mirror-' # bucketName = bucketBase + profile + '-' + region
       lifespan: 1 # in days, how long should S3 keep this
@@ -78,13 +78,16 @@ production:
     trustProxy: true
 
 # Configuration in production (US-East-1, new instance)
-production2:
+production-us-east-1:
   sqsSimple:
     queueName: cloud-mirror-us-east-1
   taskcluster:
     authBaseUrl: https://auth.taskcluster.net/v1
+  backend:
+    s3:
+      regions: 'us-west-1,us-west-1,eu-central-1'
   server:
-    publicUrl: https://cloud-mirror-us-east-1.taskcluster.net
+    publicUrl: https://cloud-mirror-us-east-1.herokuapp.com/
     env: production
     forceSSL: true
     ensureSSL: true
