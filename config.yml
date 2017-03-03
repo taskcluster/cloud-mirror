@@ -66,7 +66,7 @@ defaults:
     region: us-west-2
     apiVersion: 2014-01-01
 
-# Configuration in production
+# Configuration in production (US-West-2, old instance)
 production:
   sqsSimple:
     queueName: cloud-mirror-production
@@ -74,6 +74,19 @@ production:
     authBaseUrl: https://auth.taskcluster.net/v1
   server:
     publicUrl: https://cloud-mirror.taskcluster.net
+    env: production
+    forceSSL: true
+    ensureSSL: true
+    trustProxy: true
+
+# Configuration in production (US-East-1, new instance)
+production2:
+  sqsSimple:
+    queueName: cloud-mirror-us-east-1
+  taskcluster:
+    authBaseUrl: https://auth.taskcluster.net/v1
+  server:
+    publicUrl: https://cloud-mirror-us-east-1.taskcluster.net
     env: production
     forceSSL: true
     ensureSSL: true
