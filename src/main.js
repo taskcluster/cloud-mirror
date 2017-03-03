@@ -77,7 +77,8 @@ let load = base.loader({
     setup: ({cfg, monitor}) => {
       assert(cfg.sqs, 'Must specify config for SQS');
       let sqsCfg = cfg.sqs;
-      let sqsDebugger = log.child({service: sqs});
+      let sqsDebugger = log.child({service: 'sqs'});
+
       let awsDebugLoggerBridge = {
         write: x => {
           for (let y of x.split('\n')) {
@@ -85,7 +86,8 @@ let load = base.loader({
           }
         },
       };
-      //sqsCfg.logger = awsDebugLoggerBridge;
+
+      sqsCfg.logger = awsDebugLoggerBridge;
       let sqs = new aws.SQS(sqsCfg);
       monitor.patchAWS(sqs);
       return sqs;
@@ -284,7 +286,7 @@ let load = base.loader({
 
         awsCfg.region = region;
 
-        let s3Debugger = log.child({service: s3, region});
+        let s3Debugger = log.child({service: 's3', region});
 
         let awsDebugLoggerBridge = {
           write: x => {
