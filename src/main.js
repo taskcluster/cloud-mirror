@@ -214,7 +214,7 @@ let load = base.loader({
         listener.on('error', (err, errType) => {
           let level = errType === 'payload' ? 'debug' : 'warning';
           monitor.reportError(err, level, {type: errType});
-          handlerLog({err, errType}, 'handler error');
+          handlerLog.error({err, errType}, 'handler error');
           if (errType === 'api') {
             console.log('Encountered an API error, exiting');
             process.exit(1);

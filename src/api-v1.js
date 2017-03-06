@@ -153,7 +153,7 @@ api.declare({
     // If we get here, we're doing the fallback of redirecting
     // to the original URL because the caching took too long
     
-    reqLog({attemptedUrl: result.url, to: url}, 'time limit exceeded, redirecting to uncached copy');
+    reqLog.warn({attemptedUrl: result.url, to: url}, 'time limit exceeded, redirecting to uncached copy');
     log.error(`Redirecting to uncached copy because it took too long ${url}`);
 
     this.monitor.count(`${service}.${region}.redirect-original`, 1);
