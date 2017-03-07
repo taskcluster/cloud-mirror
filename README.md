@@ -169,3 +169,9 @@ channel of `irc.mozilla.org` if you are not sure what they represent.
 
 4. If the cache becomes corrupt, you can use the flushdb redis command on the
    redis DB to clear it.
+
+
+Service Owner
+-------------
+
+Service Owner: jhford@mozilla.com
