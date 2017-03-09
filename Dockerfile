@@ -1,4 +1,4 @@
-FROM node:5.5
+FROM node:7.7.1
 MAINTAINER John Ford
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -y
 RUN DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y
