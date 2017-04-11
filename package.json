@@ -33,6 +33,7 @@
     "eslint-config-taskcluster": "^2.0.0",
     "eslint-plugin-taskcluster": "^1.0.2",
     "install": "^0.8.1",
+    "memory-streams": "^0.1.0",
     "mocha": "^3.0.2",
     "redis": "^2.6.2",
     "request": "^2.74.0",
@@ -45,11 +46,11 @@
     "taskcluster-lib-api": "^2.0.0",
     "taskcluster-lib-app": "^1.0.0",
     "taskcluster-lib-loader": "^1.0.0",
+    "taskcluster-lib-log": "^1.0.3",
     "taskcluster-lib-monitor": "^4.2.0",
     "taskcluster-lib-validate": "^2.0.0",
     "typed-env-config": "^1.1.0",
-    "uuid": "^2.0.1",
-    "memory-streams": "^0.1.0"
+    "uuid": "^2.0.1"
   },
   "repository": {
     "type": "git",
