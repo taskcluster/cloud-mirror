@@ -1,0 +1,40 @@
+version: 0
+metadata:
+  name: "cloud-mirror tasks"
+  description: "Things for cloud-mirror service"
+  owner: "{{ event.head.user.email }}"
+  source: "{{ event.head.repo.url }}"
+
+tasks:
+  - provisionerId: '{{ taskcluster.docker.provisionerId }}'
+    workerType: '{{ taskcluster.docker.workerType }}'
+    extra:
+      github:
+        events:
+          - push
+        branches:
+          - master
+    scopes:
+      - auth:aws-s3:read-write:taskcluster-raw-docs/cloud-mirror/
+    payload:
+      maxRunTime: 3600
+      image: taskcluster/upload-project-docs:latest
+      features:
+        taskclusterProxy:
+          true
+      command:
+        - /bin/bash
+        - '--login'
+        - '-cx'
+        - >-
+          git clone {{event.head.repo.url}} repo &&
+          cd repo &&
+          git config advice.detachedHead false &&
+          git checkout {{event.head.sha}} &&
+          export DEBUG=* DOCS_PROJECT=cloud-mirror DOCS_TIER=integrations DOCS_FOLDER=docs DOCS_README=README.md &&
+          upload-project-docs
+    metadata:
+      name: "cloud-mirror docs upload"
+      description: "Upload documentation for this project"
+      owner: '{{ event.head.user.email }}'
+      source: '{{ event.head.repo.url }}'
