@@ -12,7 +12,9 @@ defaults:
     allowedPatterns:
       - '^https://www\.mozilla\.org/'
       - '^https://s3-us-west-2\.amazonaws\.com/taskcluster-public-artifacts/'
-      - '^https://public-artifacts\.taskcluster.net/'
+      - '^https://s3\.us-west-2\.amazonaws\.com/taskcluster-public-artifacts/'
+      - '^https://public-artifacts\.taskcluster\.net/'
+      - '^https://taskcluster-artifacts\.net/'
       - '^https://queue\.taskcluster\.net/'
 
   taskcluster:
