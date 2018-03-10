@@ -43,7 +43,7 @@
     "source-map-support": "^0.4.15",
     "sqs-simple": "^1.0.1",
     "superagent-promise": "^1.0.3",
-    "taskcluster-lib-api": "^2.0.0",
+    "taskcluster-lib-api": "^7.0.1",
     "taskcluster-lib-app": "^1.0.0",
     "taskcluster-lib-loader": "^1.0.0",
     "taskcluster-lib-log": "^1.0.3",
