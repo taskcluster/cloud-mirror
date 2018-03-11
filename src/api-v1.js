@@ -10,6 +10,7 @@ let GENERIC_ID_PATTERN = /^[a-zA-Z0-9-_]{1,22}$/;
 let api = new API({
   title: 'Cloud Mirror API',
   description: 'Service to duplicate URLs from various cloud providers',
+  name: 'cloud-mirror',
   schemaPrefix: 'http://schemas.taskcluster.net/s3-distribute/v1/',
   params: {
     taskId: GENERIC_ID_PATTERN,
