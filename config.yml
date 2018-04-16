@@ -23,6 +23,10 @@ defaults:
       clientId: !env TASKCLUSTER_CLIENT_ID
       accessToken: !env TASKCLUSTER_ACCESS_TOKEN
 
+  monitoring:
+    project: !env MONITORING_PROJECT
+    enable: !env:bool MONITORING_ENABLE
+
   server:
     port: !env:number PORT
     publicUrl: !env PUBLIC_URL
@@ -93,6 +97,8 @@ development:
       - '^.*/'
   redis:
     host: 127.0.0.1
+  monitoring:
+    enable: false
   server:
     port: 5555
     env: development
@@ -115,6 +121,8 @@ test:
       - '^http://www.google.com/'
   redis:
     host: 127.0.0.1
+  monitoring:
+    enable: false
   server:
     port: 5556
     env: development
