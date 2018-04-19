@@ -4,7 +4,7 @@
   "description": "Proxy files in one cloud storage system to another",
   "main": "index.js",
   "scripts": {
-    "heroku-prebuild": "echo $SOURCE_VERSION > .git-revision",
+    "heroku-prebuild": "echo $SOURCE_VERSION > .git-version",
     "compile": "babel-compile -p node5 src:lib test-src:test",
     "prepublish": "yarn run compile",
     "install": "yarn run compile",
