@@ -221,10 +221,7 @@ class CacheManager {
 
     let key = this.cacheKey(rawUrl);
     try {
-      await this.redis.multi()
-        .hmset(key, cacheEntry)
-        .expire(key, ttl)
-        .execAsync();
+      await this.redis.setAsync(key, JSON.stringify(cacheEntry), 'EX', ttl);
     } catch (err) {
       this.monitor.reportError(err);
       this.monitor.count('redis.cache-insert-failure', 1);
@@ -236,7 +233,7 @@ class CacheManager {
     let key = this.cacheKey(rawUrl);
     let result = undefined;
     try {
-      result = await this.redis.hgetallAsync(key);
+      result = JSON.parse(await this.redis.getAsync(key));
     } catch (err) {
       this.monitor.reportError(err);
       this.monitor.count('redis.cache-read-failure', 1);
